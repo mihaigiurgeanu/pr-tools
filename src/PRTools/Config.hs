@@ -34,7 +34,7 @@ getDynamicBase = do
   if null trimmedRef
     then return "main"
     else do
-      let prefix = "refs/remotes/origin/"
+      let prefix :: String = "refs/remotes/origin/"
       let branch = drop (length prefix) trimmedRef
       return $ if null branch then "main" else branch
 

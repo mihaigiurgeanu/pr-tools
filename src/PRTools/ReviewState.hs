@@ -24,12 +24,12 @@ data Cmt = Cmt
 
 instance FromJSON ReviewState where
   parseJSON = withObject "ReviewState" $ \v -> ReviewState
-    <$> v .: "status"
-    <*> v .: "current_index"
-    <*> v .: "files"
-    <*> v .: "comments"
-    <*> v .: "branch"
-    <*> v .: "reviewer"
+    <$> v .: fromString "status"
+    <*> v .: fromString "current_index"
+    <*> v .: fromString "files"
+    <*> v .: fromString "comments"
+    <*> v .: fromString "branch"
+    <*> v .: fromString "reviewer"
 
 instance ToJSON ReviewState where
   toJSON rs = object
@@ -43,11 +43,11 @@ instance ToJSON ReviewState where
 
 instance FromJSON Cmt where
   parseJSON = withObject "Cmt" $ \v -> Cmt
-    <$> v .: "id"
-    <*> v .: "file"
-    <*> v .: "line"
-    <*> v .: "text"
-    <*> v .: "resolved"
+    <$> v .: fromString "id"
+    <*> v .: fromString "file"
+    <*> v .: fromString "line"
+    <*> v .: fromString "text"
+    <*> v .: fromString "resolved"
 
 instance ToJSON Cmt where
   toJSON cm = object

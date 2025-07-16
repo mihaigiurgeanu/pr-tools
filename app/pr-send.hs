@@ -1,5 +1,9 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 import Data.Aeson (encode, object, (.=))
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
+import Data.CaseInsensitive (mk)
 import Network.HTTP.Client (RequestBody(RequestBodyLBS), httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseStatus)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types (statusCode)
@@ -35,7 +39,7 @@ main = do
           let req = initReq
                 { method = "POST"
                 , requestBody = RequestBodyLBS $ encode $ object ["text" .= message]
-                , requestHeaders = [("Content-Type", "application/json")]
+                , requestHeaders = [(mk "Content-Type", "application/json")]
                 }
           response <- httpLbs req manager
           if statusCode (responseStatus response) == 200
