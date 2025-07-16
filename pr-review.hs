@@ -1,0 +1,285 @@
+import Data.Aeson (ToJSON(..), object, (.=))
+import Data.Algorithm.Diff (Diff(..), getGroupedDiff)
+import Data.Char (isSpace)
+import Data.List (filter, foldl', words)
+import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe)
+import Data.UUID (toString)
+import Data.UUID.V4 (nextRandom)
+import Data.Yaml (FromJSON(..), ToJSON, decodeFileEither, encodeFile, parseJSON, withObject, (.:), (.:?))
+import Options.Applicative
+import System.Directory (createDirectoryIfMissing, doesFileExist)
+import System.Environment (getArgs, lookupEnv)
+import System.Exit (exitFailure)
+import System.FilePath ((</>))
+import System.FilePath.Glob (glob)
+import System.IO (hPutStrLn, stderr)
+import System.IO.Temp (withSystemTempFile)
+import System.Process (callProcess, readProcess)
+
+reviewDir :: FilePath
+reviewDir = ".pr-reviews"
+
+baseBranch :: String
+baseBranch = "main"
+
+data Command =
+    Start
+  | Next
+  | Previous
+  | Open
+  | Files
+  | Changes
+  | Comment { cFile :: String, cLine :: Int, cText :: String }
+  | Resolve { rId :: String }
+  | End
+  | List
+
+parser :: Parser Command
+parser = subparser
+  ( command "start" (info (pure Start) (progDesc "Start review"))
+ <> command "next" (info (pure Next) (progDesc "Next file"))
+ <> command "previous" (info (pure Previous) (progDesc "Previous file"))
+ <> command "open" (info (pure Open) (progDesc "Open current file"))
+ <> command "files" (info (pure Files) (progDesc "List files"))
+ <> command "changes" (info (pure Changes) (progDesc "Show changes"))
+ <> command "comment" (info commentParser (progDesc "Add comment"))
+ <> command "resolve" (info resolveParser (progDesc "Resolve comment"))
+ <> command "end" (info (pure End) (progDesc "End review"))
+ <> command "list" (info (pure List) (progDesc "List reviews"))
+  )
+  where
+    commentParser = Comment
+      <$> strOption (long "file" <> metavar "FILE")
+      <$> option auto (long "line" <> metavar "LINE")
+      <$> strOption (long "text" <> metavar "TEXT")
+    resolveParser = Resolve
+      <$> strOption (long "id" <> metavar "ID")
+
+data ReviewState = ReviewState
+  { rsStatus :: String
+  , rsCurrentIndex :: Int
+  , rsFiles :: [String]
+  , rsComments :: [Cmt]
+  , rsBranch :: String
+  , rsReviewer :: String
+  } deriving Show
+
+data Cmt = Cmt
+  { cmId :: String
+  , cmFile :: String
+  , cmLine :: Int
+  , cmText :: String
+  , cmResolved :: Bool
+  } deriving Show
+
+instance FromJSON ReviewState where
+  parseJSON = withObject "ReviewState" $ \v -> ReviewState
+    <$> v .: "status"
+    <*> v .: "current_index"
+    <*> v .: "files"
+    <*> v .: "comments"
+    <*> v .: "branch"
+    <*> v .: "reviewer"
+
+instance ToJSON ReviewState where
+  toJSON rs = object
+    [ "status" .= rsStatus rs
+    , "current_index" .= rsCurrentIndex rs
+    , "files" .= rsFiles rs
+    , "comments" .= rsComments rs
+    , "branch" .= rsBranch rs
+    , "reviewer" .= rsReviewer rs
+    ]
+
+instance FromJSON Cmt where
+  parseJSON = withObject "Cmt" $ \v -> Cmt
+    <$> v .: "id"
+    <*> v .: "file"
+    <*> v .: "line"
+    <*> v .: "text"
+    <*> v .: "resolved"
+
+instance ToJSON Cmt where
+  toJSON cm = object
+    [ "id" .= cmId cm
+    , "file" .= cmFile cm
+    , "line" .= cmLine cm
+    , "text" .= cmText cm
+    , "resolved" .= cmResolved cm
+    ]
+
+getReviewFile :: String -> String -> IO FilePath
+getReviewFile branch reviewer = do
+  createDirectoryIfMissing False reviewDir
+  return $ reviewDir </> branch ++ "-" ++ reviewer ++ ".yaml"
+
+loadState :: FilePath -> IO (Maybe ReviewState)
+loadState rf = do
+  exists <- doesFileExist rf
+  if not exists
+    then return Nothing
+    else do
+      res <- decodeFileEither rf
+      case res of
+        Left _ -> return Nothing
+        Right val -> return (Just val)
+
+saveState :: FilePath -> ReviewState -> IO ()
+saveState = encodeFile
+
+generateConflictContent :: [String] -> [String] -> [String]
+generateConflictContent baseLines featureLines =
+  let groups = getGroupedDiff baseLines featureLines
+  in recBuild [] groups
+  where
+    recBuild acc [] = acc
+    recBuild acc (g:gs) = case g of
+      Both ls _ -> recBuild (acc ++ ls) gs
+      First ls -> case gs of
+        (Second ms : rest) -> recBuild (acc ++ ["<<<<<<< BASE"] ++ ls ++ ["======="] ++ ms ++ [">>>>>>> FEATURE"]) rest
+        _ -> recBuild (acc ++ ["<<<<<<< BASE"] ++ ls ++ ["======="] ++ [">>>>>>> FEATURE"]) gs
+      Second ms -> recBuild (acc ++ ["<<<<<<< BASE"] ++ ["======="] ++ ms ++ [">>>>>>> FEATURE"]) gs
+
+extractEditedFeature :: [String] -> [String]
+extractEditedFeature editedLines =
+  let (feat, _, _) = foldl' (\(f, inb, inf) line ->
+        if line == "<<<<<<< BASE" then (f, True, False)
+        else if line == "=======" then (f, False, True)
+        else if line == ">>>>>>> FEATURE" then (f, False, False)
+        else if inf || (not inb && not inf) then (f ++ [line], inb, inf)
+        else (f, inb, inf)
+      ) ([], False, False) editedLines
+  in feat
+
+extractComments :: [String] -> [String] -> [(Int, String)]
+extractComments original edited =
+  let diffs = getDiff original edited
+      (cmts, _, current) = foldl' (\(cs, al, cur) d ->
+        case d of
+          Both _ _ ->
+            let newCs = if null cur then cs else cs ++ [(if al - 1 == 0 then 1 else al - 1, unlines cur)]
+            in (newCs, al + 1, [])
+          First _ -> do
+            hPutStrLn stderr "Warning: line removed during review"
+            (cs, al + 1, cur)
+          Second l -> (cs, al, cur ++ [l])
+        ) ([], 1, []) diffs
+      finalCmts = if null current then cmts else cmts ++ [(if _al == 0 then 1 else _al, unlines current)]
+  in filter (\(_, t) -> not (all isSpace t)) finalCmts  -- filter non-empty
+
+openEditor :: String -> String -> IO [(Int, String)]
+openEditor filePath branch = do
+  baseContent <- readProcess "git" ["show", baseBranch ++ ":" ++ filePath] ""
+  featureContent <- readProcess "git" ["show", branch ++ ":" ++ filePath] ""
+  let baseLines = lines baseContent
+  let featureLines = lines featureContent
+  let conflictLines = generateConflictContent baseLines featureLines
+  let conflictContent = unlines conflictLines
+  withSystemTempFile "review.tmp" $ \tmpPath _ -> do
+    writeFile tmpPath conflictContent
+    editor <- fromMaybe "vim" <$> lookupEnv "EDITOR"
+    callProcess editor [tmpPath]
+    editedContent <- readFile tmpPath
+    let editedLines = lines editedContent
+    let editedFeature = extractEditedFeature editedLines
+    return $ extractComments featureLines editedFeature
+
+main :: IO ()
+main = do
+  cmd <- execParser (info (parser <**> helper) idm)
+  branch <- fmap init (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
+  reviewer <- fmap init (readProcess "git" ["config", "user.name"] "")
+  reviewFile <- getReviewFile branch reviewer
+  case cmd of
+    Start -> do
+      filesOut <- readProcess "git" ["diff", "--name-only", baseBranch] ""
+      let files = lines filesOut
+      let state = ReviewState "active" 0 files [] branch reviewer
+      exists <- doesFileExist reviewFile
+      if exists then putStrLn "Review already started, resuming" else return ()
+      saveState reviewFile state
+    Next -> handleNav (\s -> if rsCurrentIndex s < length (rsFiles s) - 1 then s { rsCurrentIndex = rsCurrentIndex s + 1 } else s) reviewFile branch
+    Previous -> handleNav (\s -> if rsCurrentIndex s > 0 then s { rsCurrentIndex = rsCurrentIndex s - 1 } else s) reviewFile branch
+    Open -> handleNav id reviewFile branch
+    Files -> do
+      out <- readProcess "git" ["diff", "--name-only", baseBranch] ""
+      putStr out
+    Changes -> do
+      out <- readProcess "git" ["diff", baseBranch] ""
+      putStr out
+    Comment file line text -> do
+      mState <- loadState reviewFile
+      case mState of
+        Nothing -> do
+          hPutStrLn stderr "No active review"
+          exitFailure
+        Just state -> if rsStatus state /= "active" then do
+          hPutStrLn stderr "No active review"
+          exitFailure
+          else do
+            u <- nextRandom
+            let cmtId = take 8 $ filter (/= '-') $ toString u
+            let newComment = Cmt cmtId file line text False
+            let newState = state { rsComments = rsComments state ++ [newComment] }
+            saveState reviewFile newState
+            putStrLn $ "Added comment " ++ cmtId
+    Resolve rid -> do
+      mState <- loadState reviewFile
+      case mState of
+        Nothing -> do
+          hPutStrLn stderr "No review"
+          exitFailure
+        Just state -> do
+          let updatedComments = map (\c -> if cmId c == rid then c { cmResolved = True } else c) (rsComments state)
+          if updatedComments == rsComments state
+            then putStrLn "Comment not found"
+            else do
+              let newState = state { rsComments = updatedComments }
+              saveState reviewFile newState
+              putStrLn $ "Resolved " ++ rid
+    End -> do
+      mState <- loadState reviewFile
+      case mState of
+        Nothing -> do
+          hPutStrLn stderr "No review"
+          exitFailure
+        Just state -> do
+          let newState = state { rsStatus = "closed" }
+          saveState reviewFile newState
+          putStrLn "Review ended"
+    List -> do
+      rfs <- glob (reviewDir </> "*.yaml")
+      mapM_ (\rf -> do
+        mState <- loadState rf
+        case mState of
+          Just state -> putStrLn $ rsBranch state ++ " by " ++ rsReviewer state ++ ": " ++ rsStatus state
+          Nothing -> return ()
+        ) rfs
+
+handleNav :: (ReviewState -> ReviewState) -> FilePath -> String -> IO ()
+handleNav update rf branch = do
+  mState <- loadState rf
+  case mState of
+    Nothing -> do
+      hPutStrLn stderr "No active review"
+      exitFailure
+    Just state -> if rsStatus state /= "active" then do
+      hPutStrLn stderr "No active review"
+      exitFailure
+      else do
+        let updatedState = update state
+        if rsCurrentIndex updatedState == rsCurrentIndex state && update /= id
+          then if rsCurrentIndex state == 0 then putStrLn "No previous files" else putStrLn "No more files"
+          else do
+            saveState rf updatedState
+            let filePath = rsFiles updatedState !! rsCurrentIndex updatedState
+            newCmts <- openEditor filePath branch
+            let filteredCmts = filter (\(_, t) -> not (all isSpace t)) newCmts
+            updatedCmts <- mapM (\(l, t) -> do
+              u <- nextRandom
+              let cid = take 8 $ filter (/= '-') $ toString u
+              return $ Cmt cid filePath l t False
+              ) filteredCmts
+            let finalState = updatedState { rsComments = rsComments updatedState ++ updatedCmts }
+            saveState rf finalState
