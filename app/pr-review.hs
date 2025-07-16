@@ -1,4 +1,4 @@
-import Data.Algorithm.Diff (PolyDiff(..), getGroupedDiff)
+import Data.Algorithm.Diff (Diff(..), getGroupedDiff)
 import Data.Char (isSpace)
 import Data.List (filter, foldl')
 import Data.Maybe (fromMaybe)
@@ -90,7 +90,7 @@ extractEditedFeature editedLines =
 
 extractComments :: [String] -> [String] -> [(Int, String)]
 extractComments original edited =
-  let diffs = getGroupedDiff original edited
+  let diffs = concat (getGroupedDiff original edited)
       (cmts, al, current) = foldl' (\(cs, al, cur) d ->
         case d of
           Both _ _ ->
