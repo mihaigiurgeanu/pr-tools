@@ -20,7 +20,7 @@ data Cmt = Cmt
   , cmLine :: Int
   , cmText :: String
   , cmResolved :: Bool
-  } deriving Show
+  } deriving (Eq, Show)
 
 instance FromJSON ReviewState where
   parseJSON = withObject "ReviewState" $ \v -> ReviewState
