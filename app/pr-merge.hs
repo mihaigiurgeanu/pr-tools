@@ -7,22 +7,35 @@ import Data.Time.Format (defaultTimeLocale)
 import Network.HTTP.Client (RequestBody(RequestBodyLBS), httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseStatus)
 import Network.HTTP.Client.Tls (tlsManagerSettings)
 import Network.HTTP.Types (statusCode)
+import Options.Applicative
 import System.Environment (getArgs, lookupEnv)
 import System.Exit (exitFailure)
 import System.FilePath ((</>))
 import System.IO (IOMode(AppendMode), hPutStrLn, stderr, withFile)
 import System.Process (callProcess, readProcess)
-import PRTools.Config (baseBranch)
+import PRTools.Config (getBaseBranch)
 import PRTools.PRState
+
+data Opts = Opts
+  { optBranch :: String
+  , optStrategy :: String
+  , optBase :: Maybe String
+  }
+
+optsParser :: Parser Opts
+optsParser = Opts
+  <$> strArgument (metavar "BRANCH" <> help "The feature branch to merge")
+  <*> strOption (long "strategy" <> value "fast-forward" <> showDefault <> metavar "STRATEGY" <> help "Merge strategy (fast-forward, squash, rebase)")
+  <*> optional (strOption (long "base-branch" <> metavar "BASE" <> help "Override the base branch"))
 
 main :: IO ()
 main = do
-  args <- getArgs
-  when (null args) $ do
-    hPutStrLn stderr "Usage: pr-merge <branch> [--strategy <fast-forward|squash|rebase>]"
-    exitFailure
-  let branch = head args
-  let strategy = if length args > 2 && args !! 1 == "--strategy" then args !! 2 else "fast-forward"
+  opts <- execParser $ info (optsParser <**> helper) idm
+  baseB <- case optBase opts of
+    Just b -> return b
+    Nothing -> getBaseBranch
+  let branch = optBranch opts
+  let strategy = optStrategy opts
   state <- loadState
   case Map.lookup branch state of
     Nothing -> do
@@ -32,7 +45,7 @@ main = do
       hPutStrLn stderr $ "PR " ++ branch ++ " not approved or not tracked"
       exitFailure
       else do
-        callProcess "git" ["checkout", baseBranch]
+        callProcess "git" ["checkout", baseB]
         case strategy of
           "fast-forward" -> callProcess "git" ["merge", "--ff-only", branch]
           "squash" -> do
@@ -40,8 +53,8 @@ main = do
             callProcess "git" ["commit", "--message", "Squashed merge of " ++ branch]
           "rebase" -> do
             callProcess "git" ["checkout", branch]
-            callProcess "git" ["rebase", baseBranch]
-            callProcess "git" ["checkout", baseBranch]
+            callProcess "git" ["rebase", baseB]
+            callProcess "git" ["checkout", baseB]
             callProcess "git" ["merge", "--ff-only", branch]
           _ -> do
             hPutStrLn stderr "Invalid strategy"

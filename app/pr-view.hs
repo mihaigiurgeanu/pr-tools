@@ -1,12 +1,14 @@
-import Data.List (words, null, head, lines, takeWhile, drop, take, length)
+import Control.Monad (foldM)
+import Data.List (drop, foldl', head, length, lines, null, take, takeWhile, words)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Yaml (decodeFileEither)
+import Options.Applicative
 import System.Environment (getArgs)
 import System.FilePath ( (</>) )
 import System.FilePath.Glob (glob)
 import System.Process (readProcess)
-import PRTools.Config (reviewDir, baseBranch)
+import PRTools.Config (getBaseBranch, reviewDir)
 import PRTools.ReviewState (ReviewState(..), Cmt(..))
 
 data Comment = Comment { cReviewer :: String, cText :: String, cResolved :: Bool, cId :: String } deriving Show
@@ -16,8 +18,7 @@ type Comments = Map.Map String (Map.Map Int [Comment])
 collectComments :: String -> IO Comments
 collectComments branch = do
   rfs <- glob (reviewDir </> (branch ++ "-*.yaml"))
-  foldl (\accM rf -> do
-    acc <- accM
+  foldM (\acc rf -> do
     mState <- decodeFileEither rf
     case mState of
       Left _ -> return acc
@@ -31,20 +32,30 @@ collectComments branch = do
              in Just newInner
            ) file accC
         ) acc (rsComments state)
-    ) (return Map.empty) rfs
+    ) Map.empty rfs
+
+data Opts = Opts
+  { optBranch :: String
+  , optBase :: Maybe String
+  }
+
+optsParser :: Parser Opts
+optsParser = Opts
+  <$> strArgument (metavar "BRANCH" <> help "The feature branch")
+  <*> optional (strOption (long "base-branch" <> metavar "BASE" <> help "Override the base branch"))
 
 main :: IO ()
 main = do
-  args <- getArgs
-  if null args
-    then putStrLn "Usage: pr-view <branch>"
-    else do
-      let branch = head args
-      comms <- collectComments branch
-      diffText <- readProcess "git" ["diff", baseBranch, branch] ""
-      let diffLines = lines diffText
-      let output = "# Annotated Diff for " ++ branch : "" : "```diff" : go diffLines Nothing 0 comms
-      putStr (unlines output)
+  opts <- execParser $ info (optsParser <**> helper) idm
+  baseB <- case optBase opts of
+    Just b -> return b
+    Nothing -> getBaseBranch
+  let branch = optBranch opts
+  comms <- collectComments branch
+  diffText <- readProcess "git" ["diff", baseB, branch] ""
+  let diffLines = lines diffText
+  let output = "# Annotated Diff for " ++ branch : "" : "```diff" : go diffLines Nothing 0 comms
+  putStr (unlines output)
   where
     go [] _ _ _ = ["```"]
     go (l:ls) cf cl comms = l : (case cf of

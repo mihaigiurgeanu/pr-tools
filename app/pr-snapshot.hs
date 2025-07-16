@@ -1,18 +1,34 @@
-import PRTools.Config (baseBranch)
+import PRTools.Config (getBaseBranch)
 
+import Options.Applicative
 import System.Directory (createDirectoryIfMissing, getHomeDirectory)
 import System.Environment (getArgs)
 import System.FilePath ((</>))
 import System.Process (readProcess)
 
+data Opts = Opts
+  { optBranch :: Maybe String
+  , optBase :: Maybe String
+  }
+
+optsParser :: Parser Opts
+optsParser = Opts
+  <$> optional (strArgument (metavar "BRANCH" <> help "The feature branch (default: current branch)"))
+  <*> optional (strOption (long "base-branch" <> metavar "BASE" <> help "Override the base branch"))
+
 main :: IO ()
 main = do
-  args <- getArgs
-  branch <- if not (null args) then return (head args) else fmap init (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
+  opts <- execParser $ info (optsParser <**> helper) idm
+  baseB <- case optBase opts of
+    Just b -> return b
+    Nothing -> getBaseBranch
+  branch <- case optBranch opts of
+    Just b -> return b
+    Nothing -> fmap init (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
   author <- fmap init (readProcess "git" ["config", "user.name"] "")
-  commitsOut <- readProcess "git" ["log", "--format=%h %s", baseBranch ++ ".." ++ branch] ""
+  commitsOut <- readProcess "git" ["log", "--format=%h %s", baseB ++ ".." ++ branch] ""
   let commitList = unlines $ map ("- " ++) $ lines commitsOut
-  diffSummary <- readProcess "git" ["diff", "--stat", baseBranch, branch] ""
+  diffSummary <- readProcess "git" ["diff", "--stat", baseB, branch] ""
   let md = unlines
         [ "# PR Snapshot for " ++ branch
         , ""

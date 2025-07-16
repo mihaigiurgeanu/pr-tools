@@ -5,7 +5,7 @@ import Data.Maybe (fromMaybe)
 import Data.UUID (toString)
 import Data.UUID.V4 (nextRandom)
 import Options.Applicative
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import System.FilePath ((</>))
@@ -13,7 +13,7 @@ import System.FilePath.Glob (glob)
 import System.IO (hPutStrLn, stderr)
 import System.IO.Temp (withSystemTempFile)
 import System.Process (callProcess, readProcess)
-import PRTools.Config (reviewDir, baseBranch)
+import PRTools.Config (getBaseBranch, reviewDir)
 import PRTools.ReviewState
 
 data Command =
@@ -28,8 +28,30 @@ data Command =
   | End
   | List
 
-parser :: Parser Command
-parser = subparser
+data Global = Global { gBaseBranch :: Maybe String }
+
+globalParser :: Parser Global
+globalParser = Global
+  <$> optional (strOption
+      ( long "base-branch"
+     <> metavar "BASE"
+     <> help "Override the base branch"
+      ))
+
+data Command =
+    Start
+  | Next
+  | Previous
+  | Open
+  | Files
+  | Changes
+  | Comment { cFile :: String, cLine :: Int, cText :: String }
+  | Resolve { rId :: String }
+  | End
+  | List
+
+commandParser :: Parser Command
+commandParser = subparser
   ( command "start" (info (pure Start) (progDesc "Start review"))
  <> command "next" (info (pure Next) (progDesc "Next file"))
  <> command "previous" (info (pure Previous) (progDesc "Previous file"))
@@ -93,9 +115,9 @@ extractComments original edited =
       finalCmts = if null current then cmts else cmts ++ [(if _al == 0 then 1 else _al, unlines current)]
   in filter (\(_, t) -> not (all isSpace t)) finalCmts  -- filter non-empty
 
-openEditor :: String -> String -> IO [(Int, String)]
-openEditor filePath branch = do
-  baseContent <- readProcess "git" ["show", baseBranch ++ ":" ++ filePath] ""
+openEditor :: String -> String -> String -> IO [(Int, String)]
+openEditor filePath branch baseB = do
+  baseContent <- readProcess "git" ["show", baseB ++ ":" ++ filePath] ""
   featureContent <- readProcess "git" ["show", branch ++ ":" ++ filePath] ""
   let baseLines = lines baseContent
   let featureLines = lines featureContent
@@ -110,28 +132,36 @@ openEditor filePath branch = do
     let editedFeature = extractEditedFeature editedLines
     return $ extractComments featureLines editedFeature
 
+data App = App { appGlobal :: Global, appCommand :: Command }
+
+appParser :: Parser App
+appParser = App <$> globalParser <*> commandParser
+
 main :: IO ()
 main = do
-  cmd <- execParser (info (parser <**> helper) idm)
+  App global cmd <- execParser $ info (appParser <**> helper) idm
+  baseB <- case gBaseBranch global of
+    Just b -> return b
+    Nothing -> getBaseBranch
   branch <- fmap init (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
   reviewer <- fmap init (readProcess "git" ["config", "user.name"] "")
   reviewFile <- getReviewFile branch reviewer
   case cmd of
     Start -> do
-      filesOut <- readProcess "git" ["diff", "--name-only", baseBranch] ""
+      filesOut <- readProcess "git" ["diff", "--name-only", baseB] ""
       let files = lines filesOut
       let state = ReviewState "active" 0 files [] branch reviewer
       exists <- doesFileExist reviewFile
       if exists then putStrLn "Review already started, resuming" else return ()
       saveReviewState reviewFile state
-    Next -> handleNav (\s -> if rsCurrentIndex s < length (rsFiles s) - 1 then s { rsCurrentIndex = rsCurrentIndex s + 1 } else s) reviewFile branch
-    Previous -> handleNav (\s -> if rsCurrentIndex s > 0 then s { rsCurrentIndex = rsCurrentIndex s - 1 } else s) reviewFile branch
-    Open -> handleNav id reviewFile branch
+    Next -> handleNav (\s -> if rsCurrentIndex s < length (rsFiles s) - 1 then s { rsCurrentIndex = rsCurrentIndex s + 1 } else s) reviewFile branch baseB
+    Previous -> handleNav (\s -> if rsCurrentIndex s > 0 then s { rsCurrentIndex = rsCurrentIndex s - 1 } else s) reviewFile branch baseB
+    Open -> handleNav id reviewFile branch baseB
     Files -> do
-      out <- readProcess "git" ["diff", "--name-only", baseBranch] ""
+      out <- readProcess "git" ["diff", "--name-only", baseB] ""
       putStr out
     Changes -> do
-      out <- readProcess "git" ["diff", baseBranch] ""
+      out <- readProcess "git" ["diff", baseB] ""
       putStr out
     Comment file line text -> do
       mState <- loadReviewState reviewFile
@@ -182,8 +212,8 @@ main = do
           Nothing -> return ()
         ) rfs
 
-handleNav :: (ReviewState -> ReviewState) -> FilePath -> String -> IO ()
-handleNav update rf branch = do
+handleNav :: (ReviewState -> ReviewState) -> FilePath -> String -> String -> IO ()
+handleNav update rf branch baseB = do
   mState <- loadReviewState rf
   case mState of
     Nothing -> do
@@ -199,7 +229,7 @@ handleNav update rf branch = do
           else do
             saveReviewState rf updatedState
             let filePath = rsFiles updatedState !! rsCurrentIndex updatedState
-            newCmts <- openEditor filePath branch
+            newCmts <- openEditor filePath branch baseB
             let filteredCmts = filter (\(_, t) -> not (all isSpace t)) newCmts
             updatedCmts <- mapM (\(l, t) -> do
               u <- nextRandom

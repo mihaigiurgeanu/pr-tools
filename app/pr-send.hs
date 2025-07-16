@@ -1,7 +1,7 @@
 import Data.Aeson (encode, object, (.=))
 import qualified Data.ByteString.Lazy as LBS
 import Network.HTTP.Client (RequestBody(RequestBodyLBS), httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseStatus)
-import Network.HTTP.Client.Tls (tlsManagerSettings)
+import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types (statusCode)
 import System.Directory (doesFileExist, getHomeDirectory)
 import System.Environment (getArgs, lookupEnv)

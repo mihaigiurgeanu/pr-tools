@@ -36,6 +36,8 @@ library
 
                   , directory
 
+                  , process
+
                   , yaml
 
   hs-source-dirs:   src
@@ -128,7 +130,7 @@ executable pr-review
 
                   , filepath
 
-                  , glob
+                  , Glob
 
                   , optparse-applicative
 
@@ -152,7 +154,7 @@ executable pr-view
 
                   , filepath
 
-                  , glob
+                  , Glob
 
                   , process
 
