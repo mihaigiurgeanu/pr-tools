@@ -54,6 +54,8 @@ executable pr-snapshot
 
                   , filepath
 
+                  , optparse-applicative
+
                   , process
 
   hs-source-dirs:   app
@@ -67,6 +69,8 @@ executable pr-send
   build-depends:    aeson
 
                   , bytestring
+
+                  , case-insensitive
 
                   , directory
 
@@ -102,13 +106,21 @@ executable pr-merge
 
   build-depends:    pr-tools
 
+                  , aeson
+
                   , bytestring
+
+                  , case-insensitive
+
+                  , filepath
 
                   , http-client
 
                   , http-client-tls
 
                   , http-types
+
+                  , optparse-applicative
 
                   , process
 

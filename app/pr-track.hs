@@ -1,4 +1,5 @@
 import Control.Monad (when)
+import qualified Data.Map.Strict as Map
 import Data.List (head, intercalate, length, notElem, null, (!!))
 import System.Environment (getArgs)
 import System.Exit (exitFailure)

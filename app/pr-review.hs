@@ -16,18 +16,6 @@ import System.Process (callProcess, readProcess)
 import PRTools.Config (getBaseBranch, reviewDir)
 import PRTools.ReviewState
 
-data Command =
-    Start
-  | Next
-  | Previous
-  | Open
-  | Files
-  | Changes
-  | Comment { cFile :: String, cLine :: Int, cText :: String }
-  | Resolve { rId :: String }
-  | End
-  | List
-
 data Global = Global { gBaseBranch :: Maybe String }
 
 globalParser :: Parser Global
@@ -103,7 +91,7 @@ extractEditedFeature editedLines =
 extractComments :: [String] -> [String] -> [(Int, String)]
 extractComments original edited =
   let diffs = getGroupedDiff original edited
-      (cmts, _al, current) = foldl' (\(cs, al, cur) d ->
+      (cmts, al, current) = foldl' (\(cs, al, cur) d ->
         case d of
           Both _ _ ->
             let newCs = if null cur then cs else cs ++ [(if al - 1 == 0 then 1 else al - 1, unlines cur)]
@@ -112,7 +100,7 @@ extractComments original edited =
             (cs, al + 1, cur)
           Second l -> (cs, al, cur ++ [l])
         ) ([], 1, []) diffs
-      finalCmts = if null current then cmts else cmts ++ [(if _al == 0 then 1 else _al, unlines current)]
+      finalCmts = if null current then cmts else cmts ++ [(if al == 0 then 1 else al, unlines current)]
   in filter (\(_, t) -> not (all isSpace t)) finalCmts  -- filter non-empty
 
 openEditor :: String -> String -> String -> IO [(Int, String)]

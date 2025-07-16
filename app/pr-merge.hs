@@ -1,11 +1,15 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 import Control.Monad (when)
 import Data.Aeson (encode, object, (.=))
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
+import Data.CaseInsensitive (mk)
 import Data.List (head, length, null, (!!))
 import Data.Time (formatTime, getCurrentTime)
 import Data.Time.Format (defaultTimeLocale)
 import Network.HTTP.Client (RequestBody(RequestBodyLBS), httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseStatus)
-import Network.HTTP.Client.Tls (tlsManagerSettings)
+import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types (statusCode)
 import Options.Applicative
 import System.Environment (getArgs, lookupEnv)
@@ -73,7 +77,7 @@ main = do
             let req = initReq
                   { method = "POST"
                   , requestBody = RequestBodyLBS $ encode $ object ["text" .= ("PR " ++ branch ++ " merged using " ++ strategy)]
-                  , requestHeaders = [("Content-Type", "application/json")]
+                  , requestHeaders = [(mk "Content-Type", "application/json")]
                   }
             response <- httpLbs req manager
             return ()

@@ -1,5 +1,6 @@
 import PRTools.Config (getBaseBranch)
 
+import Data.List (head, lines, null, unlines)
 import Options.Applicative
 import System.Directory (createDirectoryIfMissing, getHomeDirectory)
 import System.Environment (getArgs)
