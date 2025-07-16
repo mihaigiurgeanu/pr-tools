@@ -70,24 +70,12 @@ generateConflictContent baseLines featureLines =
   in recBuild [] groups
   where
     recBuild acc [] = acc
-    recBuild acc (g:gs) =
-      case head g of
-        Both _ _ ->
-          let ls = map (\(Both l _) -> l) g
-          in recBuild (acc ++ ls) gs
-        First _ ->
-          let ls = map (\(First l) -> l) g
-          in case gs of
-               (h:rest) | isSecond (head h) ->
-                 let ms = map (\(Second m) -> m) h
-                 in recBuild (acc ++ ["<<<<<<< BASE"] ++ ls ++ ["======="] ++ ms ++ [">>>>>>> FEATURE"]) rest
-               _ -> recBuild (acc ++ ["<<<<<<< BASE"] ++ ls ++ ["======="] ++ [">>>>>>> FEATURE"]) gs
-        Second _ ->
-          let ms = map (\(Second m) -> m) g
-          in recBuild (acc ++ ["<<<<<<< BASE"] ++ ["======="] ++ ms ++ [">>>>>>> FEATURE"]) gs
-
-    isSecond (Second _) = True
-    isSecond _ = False
+    recBuild acc (g:gs) = case g of
+      Both ls _ -> recBuild (acc ++ ls) gs
+      First ls -> case gs of
+        (Second ms : rest) -> recBuild (acc ++ ["<<<<<<< BASE"] ++ ls ++ ["======="] ++ ms ++ [">>>>>>> FEATURE"]) rest
+        _ -> recBuild (acc ++ ["<<<<<<< BASE"] ++ ls ++ ["======="] ++ [">>>>>>> FEATURE"]) gs
+      Second ms -> recBuild (acc ++ ["<<<<<<< BASE"] ++ ["======="] ++ ms ++ [">>>>>>> FEATURE"]) gs
 
 extractEditedFeature :: [String] -> [String]
 extractEditedFeature editedLines =
@@ -102,15 +90,15 @@ extractEditedFeature editedLines =
 
 extractComments :: [String] -> [String] -> [(Int, String)]
 extractComments original edited =
-  let diffs = concat (getGroupedDiff original edited)
+  let diffs = getGroupedDiff original edited
       (cmts, al, current) = foldl' (\(cs, al, cur) d ->
         case d of
-          Both _ _ ->
+          Both ls _ ->
             let newCs = if null cur then cs else cs ++ [(if al - 1 == 0 then 1 else al - 1, unlines cur)]
-            in (newCs, al + 1, [])
-          First _ ->
-            (cs, al + 1, cur)
-          Second l -> (cs, al, cur ++ [l])
+            in (newCs, al + length ls, [])
+          First ls ->
+            (cs, al + length ls, cur)
+          Second ls -> (cs, al, cur ++ ls)
         ) ([], 1, []) diffs
       finalCmts = if null current then cmts else cmts ++ [(if al == 0 then 1 else al, unlines current)]
   in filter (\(_, t) -> not (all isSpace t)) finalCmts  -- filter non-empty
