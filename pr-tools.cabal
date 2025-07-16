@@ -94,6 +94,8 @@ executable pr-track
 
   build-depends:    pr-tools
 
+                  , containers
+
                   , process
 
   hs-source-dirs:   app
@@ -167,6 +169,8 @@ executable pr-view
                   , filepath
 
                   , Glob
+
+                  , optparse-applicative
 
                   , process
 

@@ -5,6 +5,7 @@ import Data.Aeson (encode, object, (.=))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import Data.CaseInsensitive (mk)
+import qualified Data.Map.Strict as Map
 import Data.List (head, length, null, (!!))
 import Data.Time (formatTime, getCurrentTime)
 import Data.Time.Format (defaultTimeLocale)
