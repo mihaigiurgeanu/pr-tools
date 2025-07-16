@@ -1,3 +1,4 @@
+import Control.Monad (when)
 import Data.Aeson (ToJSON(..), object, (.=))
 import Data.List (head, intercalate, length, notElem, null, (!!))
 import qualified Data.Map.Strict as Map
@@ -38,18 +39,16 @@ saveState = encodeFile statePath
 main :: IO ()
 main = do
   args <- getArgs
-  if null args
-    then do
-      hPutStrLn stderr "Usage: pr-track <command> [args]"
-      exitFailure
+  when (null args) $ do
+    hPutStrLn stderr "Usage: pr-track <command> [args]"
+    exitFailure
   let command = head args
   state <- loadState
   case command of
     "approve" -> do
-      if length args < 2
-        then do
-          hPutStrLn stderr "Usage: pr-track approve <branch> [--by <name>]"
-          exitFailure
+      when (length args < 2) $ do
+        hPutStrLn stderr "Usage: pr-track approve <branch> [--by <name>]"
+        exitFailure
       let branch = args !! 1
       by <- fmap init (readProcess "git" ["config", "user.name"] "")
       let by' = if length args > 3 && args !! 2 == "--by" then args !! 3 else by
@@ -60,10 +59,9 @@ main = do
       saveState newState
       putStrLn $ "Approved " ++ branch ++ " by " ++ by'
     "status" -> do
-      if length args < 2
-        then do
-          hPutStrLn stderr "Usage: pr-track status <branch>"
-          exitFailure
+      when (length args < 2) $ do
+        hPutStrLn stderr "Usage: pr-track status <branch>"
+        exitFailure
       let branch = args !! 1
       case Map.lookup branch state of
         Nothing -> putStrLn $ "No status for " ++ branch

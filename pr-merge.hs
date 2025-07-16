@@ -1,3 +1,4 @@
+import Control.Monad (when)
 import Data.Aeson (encode, object, (.=))
 import qualified Data.ByteString.Lazy as LBS
 import Data.List (head, length, null, (!!))
@@ -46,10 +47,9 @@ saveState = encodeFile statePath
 main :: IO ()
 main = do
   args <- getArgs
-  if null args
-    then do
-      hPutStrLn stderr "Usage: pr-merge <branch> [--strategy <fast-forward|squash|rebase>]"
-      exitFailure
+  when (null args) $ do
+    hPutStrLn stderr "Usage: pr-merge <branch> [--strategy <fast-forward|squash|rebase>]"
+    exitFailure
   let branch = head args
   let strategy = if length args > 2 && args !! 1 == "--strategy" then args !! 2 else "fast-forward"
   state <- loadState
