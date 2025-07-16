@@ -1,5 +1,5 @@
 import Data.Aeson (ToJSON(..), object, (.=))
-import Data.List (intercalate)
+import Data.List (head, intercalate, length, notElem, null, (!!))
 import qualified Data.Map.Strict as Map
 import Data.Yaml (FromJSON(..), ToJSON, decodeFileEither, encodeFile, parseJSON, withObject, (.:), (.:?))
 import System.Directory (doesFileExist)
