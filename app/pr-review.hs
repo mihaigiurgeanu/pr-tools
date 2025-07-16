@@ -38,6 +38,8 @@ data Command =
   | End
   | List
 
+data NavAction = NavNext | NavPrevious | NavOpen
+
 commandParser :: Parser Command
 commandParser = subparser
   ( command "start" (info (pure Start) (progDesc "Start review"))
@@ -142,9 +144,9 @@ main = do
       exists <- doesFileExist reviewFile
       if exists then putStrLn "Review already started, resuming" else return ()
       saveReviewState reviewFile state
-    Next -> handleNav (\s -> if rsCurrentIndex s < length (rsFiles s) - 1 then s { rsCurrentIndex = rsCurrentIndex s + 1 } else s) reviewFile branch baseB
-    Previous -> handleNav (\s -> if rsCurrentIndex s > 0 then s { rsCurrentIndex = rsCurrentIndex s - 1 } else s) reviewFile branch baseB
-    Open -> handleNav id reviewFile branch baseB
+    Next -> handleNav NavNext reviewFile branch baseB
+    Previous -> handleNav NavPrevious reviewFile branch baseB
+    Open -> handleNav NavOpen reviewFile branch baseB
     Files -> do
       out <- readProcess "git" ["diff", "--name-only", baseB] ""
       putStr out
