@@ -202,8 +202,8 @@ main = do
           Nothing -> return ()
         ) rfs
 
-handleNav :: (ReviewState -> ReviewState) -> FilePath -> String -> String -> IO ()
-handleNav update rf branch baseB = do
+handleNav :: NavAction -> FilePath -> String -> String -> IO ()
+handleNav action rf branch baseB = do
   mState <- loadReviewState rf
   case mState of
     Nothing -> do
@@ -213,10 +213,17 @@ handleNav update rf branch baseB = do
       hPutStrLn stderr "No active review"
       exitFailure
       else do
-        let updatedState = update state
-        if rsCurrentIndex updatedState == rsCurrentIndex state && update /= id
-          then if rsCurrentIndex state == 0 then putStrLn "No previous files" else putStrLn "No more files"
-          else do
+        let (updatedState, maybeMsg) = case action of
+              NavOpen -> (state, Nothing)
+              NavPrevious -> if rsCurrentIndex state > 0
+                             then (state { rsCurrentIndex = rsCurrentIndex state - 1 }, Nothing)
+                             else (state, Just "No previous files")
+              NavNext -> if rsCurrentIndex state < length (rsFiles state) - 1
+                         then (state { rsCurrentIndex = rsCurrentIndex state + 1 }, Nothing)
+                         else (state, Just "No more files")
+        case maybeMsg of
+          Just msg -> putStrLn msg
+          Nothing -> do
             saveReviewState rf updatedState
             let filePath = rsFiles updatedState !! rsCurrentIndex updatedState
             newCmts <- openEditor filePath branch baseB
