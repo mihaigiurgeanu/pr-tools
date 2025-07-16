@@ -62,6 +62,7 @@ executable pr-merge
                   , aeson
                   , bytestring
                   , case-insensitive
+                  , containers
                   , filepath
                   , http-client
                   , http-client-tls
