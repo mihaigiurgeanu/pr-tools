@@ -12,7 +12,7 @@ data ReviewState = ReviewState
   , rsComments :: [Cmt]
   , rsBranch :: String
   , rsReviewer :: String
-  } deriving Show
+  } deriving (Eq, Show)
 
 data Cmt = Cmt
   { cmId :: String
