@@ -54,8 +54,8 @@ commandParser = subparser
   where
     commentParser = Comment
       <$> strOption (long "file" <> metavar "FILE")
-      <$> option auto (long "line" <> metavar "LINE")
-      <$> strOption (long "text" <> metavar "TEXT")
+      <*> option auto (long "line" <> metavar "LINE")
+      <*> strOption (long "text" <> metavar "TEXT")
     resolveParser = Resolve
       <$> strOption (long "id" <> metavar "ID")
 
