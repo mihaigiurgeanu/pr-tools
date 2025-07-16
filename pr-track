@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+
+import git
+import os
+import sys
+import yaml
+
+STATE_PATH = '.pr-state.yaml'
+
+def load_state():
+    if os.path.exists(STATE_PATH):
+        with open(STATE_PATH, 'r') as f:
+            return yaml.safe_load(f) or {}
+    return {}
+
+def save_state(state):
+    with open(STATE_PATH, 'w') as f:
+        yaml.safe_dump(state, f)
+
+def main():
+    if len(sys.argv) < 2:
+        print('Usage: pr-track <command> [args]')
+        sys.exit(1)
+    command = sys.argv[1]
+    state = load_state()
+    repo = git.Repo('.')
+
+    if command == 'approve':
+        if len(sys.argv) < 3:
+            print('Usage: pr-track approve <branch> [--by <name>]')
+            sys.exit(1)
+        branch = sys.argv[2]
+        by = repo.config_reader().get_value('user', 'name')
+        if len(sys.argv) > 3 and sys.argv[3] == '--by':
+            by = sys.argv[4]
+        if branch not in state:
+            state[branch] = {'status': 'open', 'approvals': []}
+        if by not in state[branch]['approvals']:
+            state[branch]['approvals'].append(by)
+        save_state(state)
+        print(f'Approved {branch} by {by}')
+
+    elif command == 'status':
+        if len(sys.argv) < 3:
+            print('Usage: pr-track status <branch>')
+            sys.exit(1)
+        branch = sys.argv[2]
+        if branch not in state:
+            print(f'No status for {branch}')
+            return
+        print(f'Status: {state[branch]["status"]}')
+        print('Approvals:', ', '.join(state[branch].get('approvals', [])) or 'none')
+
+    elif command == 'list':
+        if not state:
+            print('No PRs tracked')
+            return
+        for branch, info in state.items():
+            print(f'{branch}: {info["status"]} (approvals: {len(info.get("approvals", []))})')
+
+    else:
+        print('Unknown command')
+        sys.exit(1)
+
+if __name__ == '__main__':
+    main()

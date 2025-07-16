@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+
+import git
+import os
+import requests
+import sys
+import yaml
+
+STATE_PATH = '.pr-state.yaml'
+
+def load_state():
+    if os.path.exists(STATE_PATH):
+        with open(STATE_PATH, 'r') as f:
+            return yaml.safe_load(f) or {}
+    return {}
+
+def save_state(state):
+    with open(STATE_PATH, 'w') as f:
+        yaml.safe_dump(state, f)
+
+def main():
+    if len(sys.argv) < 2:
+        print('Usage: pr-merge <branch> [--strategy <fast-forward|squash|rebase>]')
+        sys.exit(1)
+    branch = sys.argv[1]
+    strategy = 'fast-forward'
+    if len(sys.argv) > 2 and sys.argv[2] == '--strategy':
+        strategy = sys.argv[3]
+    state = load_state()
+    if branch not in state or not state[branch].get('approvals'):
+        print(f'PR {branch} not approved or not tracked')
+        sys.exit(1)
+    repo = git.Repo('.')
+    base = 'main'
+    repo.git.checkout(base)
+    if strategy == 'fast-forward':
+        repo.git.merge('--ff-only', branch)
+    elif strategy == 'squash':
+        repo.git.merge('--squash', branch)
+        repo.git.commit(message=f'Squashed merge of {branch}')
+    elif strategy == 'rebase':
+        repo.git.checkout(branch)
+        repo.git.rebase(base)
+        repo.git.checkout(base)
+        repo.git.merge('--ff-only', branch)
+    else:
+        print('Invalid strategy')
+        sys.exit(1)
+    state[branch]['status'] = 'merged'
+    save_state(state)
+    with open('CHANGELOG.md', 'a') as f:
+        f.write(f'\n- Merged {branch} using {strategy} on 2025-07-17\n')
+    if 'SLACK_WEBHOOK' in os.environ:
+        requests.post(os.environ['SLACK_WEBHOOK'], json={'text': f'PR {branch} merged using {strategy}'})
+    print(f'Merged {branch} using {strategy}')
+
+if __name__ == '__main__':
+    main()

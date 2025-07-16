@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+
+import git
+import glob
+import os
+import sys
+import yaml
+
+REVIEW_DIR = '.pr-reviews'
+BASE_BRANCH = 'main'
+
+def collect_comments(branch):
+    comms = {}
+    for rf in glob.glob(os.path.join(REVIEW_DIR, f'{branch}-*.yaml')):
+        state = yaml.safe_load(open(rf, 'r'))
+        reviewer = state['reviewer']
+        for c in state['comments']:
+            file = c['file']
+            line = c['line']
+            if file not in comms:
+                comms[file] = {}
+            if line not in comms[file]:
+                comms[file][line] = []
+            comms[file][line].append({'reviewer': reviewer, 'text': c['text'], 'resolved': c['resolved'], 'id': c['id']})
+    return comms
+
+def main():
+    if len(sys.argv) < 2:
+        print('Usage: pr-view <branch>')
+        sys.exit(1)
+    branch = sys.argv[1]
+    repo = git.Repo('.')
+    diff_text = repo.git.diff(BASE_BRANCH, branch)
+    diff_lines = diff_text.splitlines()
+    comms = collect_comments(branch)
+    output = [f'# Annotated Diff for {branch}']
+    output.append('')
+    output.append('```diff')
+    current_file = None
+    current_new_line = 0
+    for line in diff_lines:
+        output.append(line)
+        if line.startswith('diff --git '):
+            parts = line.split()
+            current_file = parts[3][2:]  # b/path
+            current_new_line = 0
+        elif line.startswith('@@ '):
+            hunk = line.split()[2]
+            current_new_line = int(hunk.split(',')[0][1:] if ',' in hunk else hunk[1:])
+        elif line.startswith('+') or line.startswith(' '):
+            if current_file and current_new_line in comms.get(current_file, {}):
+                for c in comms[current_file][current_new_line]:
+                    status = 'RESOLVED' if c['resolved'] else 'COMMENT'
+                    output.append(f' # {status} ({c["reviewer"]}) [id:{c["id"]}]: {c["text"].replace("\n", " ")}')
+            current_new_line += 1
+        # '-' does not increment
+    output.append('```')
+    print('\n'.join(output))
+
+if __name__ == '__main__':
+    main()
