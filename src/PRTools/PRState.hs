@@ -1,6 +1,7 @@
 module PRTools.PRState where
 
 import Data.Aeson (ToJSON(..), object, (.=))
+import Data.Aeson.Key (fromString)
 import qualified Data.Map.Strict as Map
 import Data.Yaml (FromJSON(..), decodeFileEither, encodeFile, parseJSON, withObject, (.:), (.:?))
 import System.Directory (doesFileExist)
@@ -13,7 +14,7 @@ instance FromJSON PRState where
   parseJSON = withObject "PRState" $ \v -> PRState <$> v .: "status" <*> v .:? "approvals" .!= []
 
 instance ToJSON PRState where
-  toJSON p = object ["status" .= prStatus p, "approvals" .= prApprovals p]
+  toJSON p = object [fromString "status" .= prStatus p, fromString "approvals" .= prApprovals p]
 
 statePath :: FilePath
 statePath = ".pr-state.yaml"

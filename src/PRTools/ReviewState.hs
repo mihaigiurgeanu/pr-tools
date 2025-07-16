@@ -1,6 +1,7 @@
 module PRTools.ReviewState where
 
 import Data.Aeson (ToJSON(..), object, (.=))
+import Data.Aeson.Key (fromString)
 import Data.Yaml (FromJSON(..), decodeFileEither, encodeFile, parseJSON, withObject, (.:), (.:?))
 import System.Directory (doesFileExist)
 
@@ -32,12 +33,12 @@ instance FromJSON ReviewState where
 
 instance ToJSON ReviewState where
   toJSON rs = object
-    [ "status" .= rsStatus rs
-    , "current_index" .= rsCurrentIndex rs
-    , "files" .= rsFiles rs
-    , "comments" .= rsComments rs
-    , "branch" .= rsBranch rs
-    , "reviewer" .= rsReviewer rs
+    [ fromString "status" .= rsStatus rs
+    , fromString "current_index" .= rsCurrentIndex rs
+    , fromString "files" .= rsFiles rs
+    , fromString "comments" .= rsComments rs
+    , fromString "branch" .= rsBranch rs
+    , fromString "reviewer" .= rsReviewer rs
     ]
 
 instance FromJSON Cmt where
@@ -50,11 +51,11 @@ instance FromJSON Cmt where
 
 instance ToJSON Cmt where
   toJSON cm = object
-    [ "id" .= cmId cm
-    , "file" .= cmFile cm
-    , "line" .= cmLine cm
-    , "text" .= cmText cm
-    , "resolved" .= cmResolved cm
+    [ fromString "id" .= cmId cm
+    , fromString "file" .= cmFile cm
+    , fromString "line" .= cmLine cm
+    , fromString "text" .= cmText cm
+    , fromString "resolved" .= cmResolved cm
     ]
 
 loadReviewState :: FilePath -> IO (Maybe ReviewState)
