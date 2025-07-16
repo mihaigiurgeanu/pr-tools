@@ -1,4 +1,4 @@
-import Data.Algorithm.Diff (Diff(..), getGroupedDiff)
+import Data.Algorithm.Diff (PolyDiff(..), getGroupedDiff)
 import Data.Char (isSpace)
 import Data.List (filter, foldl')
 import Data.Maybe (fromMaybe)
@@ -70,12 +70,24 @@ generateConflictContent baseLines featureLines =
   in recBuild [] groups
   where
     recBuild acc [] = acc
-    recBuild acc (g:gs) = case g of
-      Both ls _ -> recBuild (acc ++ ls) gs
-      First ls -> case gs of
-        (Second ms : rest) -> recBuild (acc ++ ["<<<<<<< BASE"] ++ ls ++ ["======="] ++ ms ++ [">>>>>>> FEATURE"]) rest
-        _ -> recBuild (acc ++ ["<<<<<<< BASE"] ++ ls ++ ["======="] ++ [">>>>>>> FEATURE"]) gs
-      Second ms -> recBuild (acc ++ ["<<<<<<< BASE"] ++ ["======="] ++ ms ++ [">>>>>>> FEATURE"]) gs
+    recBuild acc (g:gs) =
+      case head g of
+        Both _ _ ->
+          let ls = map (\(Both l _) -> l) g
+          in recBuild (acc ++ ls) gs
+        First _ ->
+          let ls = map (\(First l) -> l) g
+          in case gs of
+               (h:rest) | isSecond (head h) ->
+                 let ms = map (\(Second m) -> m) h
+                 in recBuild (acc ++ ["<<<<<<< BASE"] ++ ls ++ ["======="] ++ ms ++ [">>>>>>> FEATURE"]) rest
+               _ -> recBuild (acc ++ ["<<<<<<< BASE"] ++ ls ++ ["======="] ++ [">>>>>>> FEATURE"]) gs
+        Second _ ->
+          let ms = map (\(Second m) -> m) g
+          in recBuild (acc ++ ["<<<<<<< BASE"] ++ ["======="] ++ ms ++ [">>>>>>> FEATURE"]) gs
+
+    isSecond (Second _) = True
+    isSecond _ = False
 
 extractEditedFeature :: [String] -> [String]
 extractEditedFeature editedLines =
