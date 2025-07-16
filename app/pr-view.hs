@@ -54,7 +54,7 @@ main = do
   comms <- collectComments branch
   diffText <- readProcess "git" ["diff", baseB, branch] ""
   let diffLines = lines diffText
-  let output = "# Annotated Diff for " ++ branch : "" : "```diff" : go diffLines Nothing 0 comms
+  let output = ("# Annotated Diff for " ++ branch) : "" : "```diff" : go diffLines Nothing 0 comms
   putStr (unlines output)
   where
     go [] _ _ _ = ["```"]
