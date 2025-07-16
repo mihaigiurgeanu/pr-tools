@@ -43,7 +43,7 @@ main = do
     "list" -> do
       if Map.null state
         then putStrLn "No PRs tracked"
-        else Map.foldrWithKey (\b pr _ -> putStrLn $ b ++ ": " ++ prStatus pr ++ " (approvals: " ++ show (length $ prApprovals pr) ++ ")") () state
+        else Map.foldrWithKey (\b pr acc -> putStrLn (b ++ ": " ++ prStatus pr ++ " (approvals: " ++ show (length $ prApprovals pr) ++ ")") >> acc) (return ()) state
     _ -> do
       hPutStrLn stderr "Unknown command"
       exitFailure
