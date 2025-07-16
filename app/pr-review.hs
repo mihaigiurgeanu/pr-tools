@@ -1,4 +1,4 @@
-import Data.Algorithm.Diff (Diff(..), getGroupedDiff)
+import Data.Algorithm.Diff (PolyDiff(..), getGroupedDiff)
 import Data.Char (isSpace)
 import Data.List (filter, foldl')
 import Data.Maybe (fromMaybe)
@@ -80,12 +80,12 @@ generateConflictContent baseLines featureLines =
 extractEditedFeature :: [String] -> [String]
 extractEditedFeature editedLines =
   let (feat, _, _) = foldl' (\(f, inb, inf) line ->
-        if line == "<<<<<<< BASE" then (f, True, False)
-        else if line == "=======" then (f, False, True)
-        else if line == ">>>>>>> FEATURE" then (f, False, False)
-        else if inf || (not inb && not inf) then (f ++ [line], inb, inf)
-        else (f, inb, inf)
-      ) ([], False, False) editedLines
+                                 if line == "<<<<<<< BASE" then (f, True, False)
+                                 else if line == "=======" then (f, False, True)
+                                 else if line == ">>>>>>> FEATURE" then (f, False, False)
+                                 else if inf || (not inb && not inf) then (f ++ [line], inb, inf)
+                                 else (f, inb, inf)
+                            ) ([], False, False) editedLines
   in feat
 
 extractComments :: [String] -> [String] -> [(Int, String)]
