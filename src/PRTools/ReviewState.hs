@@ -1,4 +1,4 @@
-module Common.ReviewState where
+module PRTools.ReviewState where
 
 import Data.Aeson (ToJSON(..), object, (.=))
 import Data.Yaml (FromJSON(..), decodeFileEither, encodeFile, parseJSON, withObject, (.:), (.:?))

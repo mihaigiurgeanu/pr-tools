@@ -1,4 +1,4 @@
-import Common.Config (baseBranch)
+import PRTools.Config (baseBranch)
 
 import System.Directory (createDirectoryIfMissing, getHomeDirectory)
 import System.Environment (getArgs)

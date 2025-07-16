@@ -1,4 +1,4 @@
-module Common.PRState where
+module PRTools.PRState where
 
 import Data.Aeson (ToJSON(..), object, (.=))
 import qualified Data.Map.Strict as Map

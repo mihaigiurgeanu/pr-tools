@@ -13,8 +13,8 @@ import System.FilePath.Glob (glob)
 import System.IO (hPutStrLn, stderr)
 import System.IO.Temp (withSystemTempFile)
 import System.Process (callProcess, readProcess)
-import Common.Config (reviewDir, baseBranch)
-import Common.ReviewState
+import PRTools.Config (reviewDir, baseBranch)
+import PRTools.ReviewState
 
 data Command =
     Start

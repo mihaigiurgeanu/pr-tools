@@ -6,8 +6,8 @@ import System.Environment (getArgs)
 import System.FilePath ( (</>) )
 import System.FilePath.Glob (glob)
 import System.Process (readProcess)
-import Common.Config (reviewDir, baseBranch)
-import Common.ReviewState (ReviewState(..), Cmt(..))
+import PRTools.Config (reviewDir, baseBranch)
+import PRTools.ReviewState (ReviewState(..), Cmt(..))
 
 data Comment = Comment { cReviewer :: String, cText :: String, cResolved :: Bool, cId :: String } deriving Show
 

@@ -1,4 +1,4 @@
-module Common.Config where
+module PRTools.Config where
 
 baseBranch :: String
 baseBranch = "main"

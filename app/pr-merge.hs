@@ -12,8 +12,8 @@ import System.Exit (exitFailure)
 import System.FilePath ((</>))
 import System.IO (IOMode(AppendMode), hPutStrLn, stderr, withFile)
 import System.Process (callProcess, readProcess)
-import Common.Config (baseBranch)
-import Common.PRState
+import PRTools.Config (baseBranch)
+import PRTools.PRState
 
 main :: IO ()
 main = do

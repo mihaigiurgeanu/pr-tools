@@ -4,7 +4,7 @@ import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
 import System.Process (readProcess)
-import Common.PRState
+import PRTools.PRState
 
 main :: IO ()
 main = do
