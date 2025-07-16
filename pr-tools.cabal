@@ -1,0 +1,161 @@
+cabal-version:       3.0
+
+name:                pr-tools
+
+version:             0.1.0.0
+
+license:             BSD-3-Clause
+
+author:              Your Name
+
+maintainer:          your@email
+
+build-type:          Simple
+
+extra-source-files:  CHANGELOG.md
+
+common commons
+
+  default-language: Haskell2010
+
+  build-depends:    base ^>=4.14
+
+library
+
+  import: commons
+
+  exposed-modules:  Common.Config
+
+                  , Common.PRState
+
+                  , Common.ReviewState
+
+  build-depends:    aeson
+
+                  , containers
+
+                  , directory
+
+                  , yaml
+
+  hs-source-dirs:   src
+
+executable pr-snapshot
+
+  import: commons
+
+  main-is:          pr-snapshot.hs
+
+  build-depends:    pr-tools
+
+                  , directory
+
+                  , filepath
+
+                  , process
+
+  hs-source-dirs:   app
+
+executable pr-send
+
+  import: commons
+
+  main-is:          pr-send.hs
+
+  build-depends:    aeson
+
+                  , bytestring
+
+                  , directory
+
+                  , filepath
+
+                  , http-client
+
+                  , http-client-tls
+
+                  , http-types
+
+                  , process
+
+  hs-source-dirs:   app
+
+executable pr-track
+
+  import: commons
+
+  main-is:          pr-track.hs
+
+  build-depends:    pr-tools
+
+                  , process
+
+  hs-source-dirs:   app
+
+executable pr-merge
+
+  import: commons
+
+  main-is:          pr-merge.hs
+
+  build-depends:    pr-tools
+
+                  , bytestring
+
+                  , http-client
+
+                  , http-client-tls
+
+                  , http-types
+
+                  , process
+
+                  , time
+
+  hs-source-dirs:   app
+
+executable pr-review
+
+  import: commons
+
+  main-is:          pr-review.hs
+
+  build-depends:    pr-tools
+
+                  , Diff
+
+                  , directory
+
+                  , filepath
+
+                  , glob
+
+                  , optparse-applicative
+
+                  , process
+
+                  , temporary
+
+                  , uuid
+
+  hs-source-dirs:   app
+
+executable pr-view
+
+  import: commons
+
+  main-is:          pr-view.hs
+
+  build-depends:    pr-tools
+
+                  , containers
+
+                  , filepath
+
+                  , glob
+
+                  , process
+
+                  , yaml
+
+  hs-source-dirs:   app

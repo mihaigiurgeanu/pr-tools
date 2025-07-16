@@ -1,40 +1,10 @@
 import Control.Monad (when)
-import Data.Aeson (ToJSON(..), object, (.=))
 import Data.List (head, intercalate, length, notElem, null, (!!))
-import qualified Data.Map.Strict as Map
-import Data.Yaml (FromJSON(..), ToJSON, decodeFileEither, encodeFile, parseJSON, withObject, (.:), (.:?))
-import System.Directory (doesFileExist)
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
 import System.Process (readProcess)
-
-data PRState = PRState { prStatus :: String, prApprovals :: [String] } deriving Show
-
-instance FromJSON PRState where
-  parseJSON = withObject "PRState" $ \v -> PRState <$> v .: "status" <*> v .:? "approvals" .!= []
-
-instance ToJSON PRState where
-  toJSON p = object ["status" .= prStatus p, "approvals" .= prApprovals p]
-
-statePath :: FilePath
-statePath = ".pr-state.yaml"
-
-loadState :: IO (Map.Map String PRState)
-loadState = do
-  exists <- doesFileExist statePath
-  if exists
-    then do
-      res <- decodeFileEither statePath
-      case res of
-        Left err -> do
-          hPutStrLn stderr (show err)
-          exitFailure
-        Right val -> return val
-    else return Map.empty
-
-saveState :: Map.Map String PRState -> IO ()
-saveState = encodeFile statePath
+import Common.PRState
 
 main :: IO ()
 main = do

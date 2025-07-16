@@ -1,3 +1,5 @@
+import Common.Config (baseBranch)
+
 import System.Directory (createDirectoryIfMissing, getHomeDirectory)
 import System.Environment (getArgs)
 import System.FilePath ((</>))
@@ -8,10 +10,9 @@ main = do
   args <- getArgs
   branch <- if not (null args) then return (head args) else fmap init (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
   author <- fmap init (readProcess "git" ["config", "user.name"] "")
-  let base = "main"
-  commitsOut <- readProcess "git" ["log", "--format=%h %s", base ++ ".." ++ branch] ""
+  commitsOut <- readProcess "git" ["log", "--format=%h %s", baseBranch ++ ".." ++ branch] ""
   let commitList = unlines $ map ("- " ++) $ lines commitsOut
-  diffSummary <- readProcess "git" ["diff", "--stat", base, branch] ""
+  diffSummary <- readProcess "git" ["diff", "--stat", baseBranch, branch] ""
   let md = unlines
         [ "# PR Snapshot for " ++ branch
         , ""

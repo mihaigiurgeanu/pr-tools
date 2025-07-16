@@ -1,17 +1,13 @@
-import Data.List (words)
+import Data.List (words, null, head, lines, takeWhile, drop, take, length)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
-import Data.Yaml (FromJSON(..), ToJSON, decodeFileEither, parseJSON, withObject, (.:))
-import Data.Aeson (object, (.=))
+import Data.Yaml (decodeFileEither)
+import System.Environment (getArgs)
 import System.FilePath ( (</>) )
 import System.FilePath.Glob (glob)
 import System.Process (readProcess)
-
-reviewDir :: FilePath
-reviewDir = ".pr-reviews"
-
-baseBranch :: String
-baseBranch = "main"
+import Common.Config (reviewDir, baseBranch)
+import Common.ReviewState (ReviewState(..), Cmt(..))
 
 data Comment = Comment { cReviewer :: String, cText :: String, cResolved :: Bool, cId :: String } deriving Show
 
@@ -25,25 +21,17 @@ collectComments branch = do
     mState <- decodeFileEither rf
     case mState of
       Left _ -> return acc
-      Right state -> do
-        let reviewer = sReviewer state
-        foldl (\accC c -> 
-          let file = cFile c
-              line = cLine c
-              newC = Comment reviewer (cText c) (cResolved c) (cId c)
-          in Map.adjust (Map.adjust (newC :) line) file accC
-          ) acc (sComments state)
+      Right state -> return $ foldl' (\accC c ->
+        let file = cmFile c
+            line = cmLine c
+            newC = Comment (rsReviewer state) (cmText c) (cmResolved c) (cmId c)
+        in Map.alter (\maybeInner ->
+             let inner = fromMaybe Map.empty maybeInner
+                 newInner = Map.alter (\maybeList -> Just (newC : fromMaybe [] maybeList)) line inner
+             in Just newInner
+           ) file accC
+        ) acc (rsComments state)
     ) (return Map.empty) rfs
-
-data ReviewState = ReviewState { sReviewer :: String, sComments :: [Cmt] } deriving Show
-
-data Cmt = Cmt { cFile :: String, cLine :: Int, cText :: String, cResolved :: Bool, cId :: String } deriving Show
-
-instance FromJSON ReviewState where
-  parseJSON = withObject "ReviewState" $ \v -> ReviewState <$> v .: "reviewer" <*> v .: "comments"
-
-instance FromJSON Cmt where
-  parseJSON = withObject "Cmt" $ \v -> Cmt <$> v .: "file" <*> v .: "line" <*> v .: "text" <*> v .: "resolved" <*> v .: "id"
 
 main :: IO ()
 main = do

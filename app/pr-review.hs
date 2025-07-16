@@ -1,27 +1,20 @@
-import Data.Aeson (ToJSON(..), object, (.=))
 import Data.Algorithm.Diff (Diff(..), getGroupedDiff)
 import Data.Char (isSpace)
-import Data.List (filter, foldl', words)
-import qualified Data.Map.Strict as Map
+import Data.List (filter, foldl')
 import Data.Maybe (fromMaybe)
 import Data.UUID (toString)
 import Data.UUID.V4 (nextRandom)
-import Data.Yaml (FromJSON(..), ToJSON, decodeFileEither, encodeFile, parseJSON, withObject, (.:), (.:?))
 import Options.Applicative
-import System.Directory (createDirectoryIfMissing, doesFileExist)
-import System.Environment (getArgs, lookupEnv)
+import System.Directory (createDirectoryIfMissing)
+import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import System.FilePath ((</>))
 import System.FilePath.Glob (glob)
 import System.IO (hPutStrLn, stderr)
 import System.IO.Temp (withSystemTempFile)
 import System.Process (callProcess, readProcess)
-
-reviewDir :: FilePath
-reviewDir = ".pr-reviews"
-
-baseBranch :: String
-baseBranch = "main"
+import Common.Config (reviewDir, baseBranch)
+import Common.ReviewState
 
 data Command =
     Start
@@ -56,77 +49,10 @@ parser = subparser
     resolveParser = Resolve
       <$> strOption (long "id" <> metavar "ID")
 
-data ReviewState = ReviewState
-  { rsStatus :: String
-  , rsCurrentIndex :: Int
-  , rsFiles :: [String]
-  , rsComments :: [Cmt]
-  , rsBranch :: String
-  , rsReviewer :: String
-  } deriving Show
-
-data Cmt = Cmt
-  { cmId :: String
-  , cmFile :: String
-  , cmLine :: Int
-  , cmText :: String
-  , cmResolved :: Bool
-  } deriving Show
-
-instance FromJSON ReviewState where
-  parseJSON = withObject "ReviewState" $ \v -> ReviewState
-    <$> v .: "status"
-    <*> v .: "current_index"
-    <*> v .: "files"
-    <*> v .: "comments"
-    <*> v .: "branch"
-    <*> v .: "reviewer"
-
-instance ToJSON ReviewState where
-  toJSON rs = object
-    [ "status" .= rsStatus rs
-    , "current_index" .= rsCurrentIndex rs
-    , "files" .= rsFiles rs
-    , "comments" .= rsComments rs
-    , "branch" .= rsBranch rs
-    , "reviewer" .= rsReviewer rs
-    ]
-
-instance FromJSON Cmt where
-  parseJSON = withObject "Cmt" $ \v -> Cmt
-    <$> v .: "id"
-    <*> v .: "file"
-    <*> v .: "line"
-    <*> v .: "text"
-    <*> v .: "resolved"
-
-instance ToJSON Cmt where
-  toJSON cm = object
-    [ "id" .= cmId cm
-    , "file" .= cmFile cm
-    , "line" .= cmLine cm
-    , "text" .= cmText cm
-    , "resolved" .= cmResolved cm
-    ]
-
 getReviewFile :: String -> String -> IO FilePath
 getReviewFile branch reviewer = do
   createDirectoryIfMissing False reviewDir
   return $ reviewDir </> branch ++ "-" ++ reviewer ++ ".yaml"
-
-loadState :: FilePath -> IO (Maybe ReviewState)
-loadState rf = do
-  exists <- doesFileExist rf
-  if not exists
-    then return Nothing
-    else do
-      res <- decodeFileEither rf
-      case res of
-        Left _ -> return Nothing
-        Right val -> return (Just val)
-
-saveState :: FilePath -> ReviewState -> IO ()
-saveState = encodeFile
 
 generateConflictContent :: [String] -> [String] -> [String]
 generateConflictContent baseLines featureLines =
@@ -154,14 +80,13 @@ extractEditedFeature editedLines =
 
 extractComments :: [String] -> [String] -> [(Int, String)]
 extractComments original edited =
-  let diffs = getDiff original edited
-      (cmts, _, current) = foldl' (\(cs, al, cur) d ->
+  let diffs = getGroupedDiff original edited
+      (cmts, _al, current) = foldl' (\(cs, al, cur) d ->
         case d of
           Both _ _ ->
             let newCs = if null cur then cs else cs ++ [(if al - 1 == 0 then 1 else al - 1, unlines cur)]
             in (newCs, al + 1, [])
-          First _ -> do
-            hPutStrLn stderr "Warning: line removed during review"
+          First _ ->
             (cs, al + 1, cur)
           Second l -> (cs, al, cur ++ [l])
         ) ([], 1, []) diffs
@@ -198,7 +123,7 @@ main = do
       let state = ReviewState "active" 0 files [] branch reviewer
       exists <- doesFileExist reviewFile
       if exists then putStrLn "Review already started, resuming" else return ()
-      saveState reviewFile state
+      saveReviewState reviewFile state
     Next -> handleNav (\s -> if rsCurrentIndex s < length (rsFiles s) - 1 then s { rsCurrentIndex = rsCurrentIndex s + 1 } else s) reviewFile branch
     Previous -> handleNav (\s -> if rsCurrentIndex s > 0 then s { rsCurrentIndex = rsCurrentIndex s - 1 } else s) reviewFile branch
     Open -> handleNav id reviewFile branch
@@ -209,7 +134,7 @@ main = do
       out <- readProcess "git" ["diff", baseBranch] ""
       putStr out
     Comment file line text -> do
-      mState <- loadState reviewFile
+      mState <- loadReviewState reviewFile
       case mState of
         Nothing -> do
           hPutStrLn stderr "No active review"
@@ -222,10 +147,10 @@ main = do
             let cmtId = take 8 $ filter (/= '-') $ toString u
             let newComment = Cmt cmtId file line text False
             let newState = state { rsComments = rsComments state ++ [newComment] }
-            saveState reviewFile newState
+            saveReviewState reviewFile newState
             putStrLn $ "Added comment " ++ cmtId
     Resolve rid -> do
-      mState <- loadState reviewFile
+      mState <- loadReviewState reviewFile
       case mState of
         Nothing -> do
           hPutStrLn stderr "No review"
@@ -236,22 +161,22 @@ main = do
             then putStrLn "Comment not found"
             else do
               let newState = state { rsComments = updatedComments }
-              saveState reviewFile newState
+              saveReviewState reviewFile newState
               putStrLn $ "Resolved " ++ rid
     End -> do
-      mState <- loadState reviewFile
+      mState <- loadReviewState reviewFile
       case mState of
         Nothing -> do
           hPutStrLn stderr "No review"
           exitFailure
         Just state -> do
           let newState = state { rsStatus = "closed" }
-          saveState reviewFile newState
+          saveReviewState reviewFile newState
           putStrLn "Review ended"
     List -> do
       rfs <- glob (reviewDir </> "*.yaml")
       mapM_ (\rf -> do
-        mState <- loadState rf
+        mState <- loadReviewState rf
         case mState of
           Just state -> putStrLn $ rsBranch state ++ " by " ++ rsReviewer state ++ ": " ++ rsStatus state
           Nothing -> return ()
@@ -259,7 +184,7 @@ main = do
 
 handleNav :: (ReviewState -> ReviewState) -> FilePath -> String -> IO ()
 handleNav update rf branch = do
-  mState <- loadState rf
+  mState <- loadReviewState rf
   case mState of
     Nothing -> do
       hPutStrLn stderr "No active review"
@@ -272,7 +197,7 @@ handleNav update rf branch = do
         if rsCurrentIndex updatedState == rsCurrentIndex state && update /= id
           then if rsCurrentIndex state == 0 then putStrLn "No previous files" else putStrLn "No more files"
           else do
-            saveState rf updatedState
+            saveReviewState rf updatedState
             let filePath = rsFiles updatedState !! rsCurrentIndex updatedState
             newCmts <- openEditor filePath branch
             let filteredCmts = filter (\(_, t) -> not (all isSpace t)) newCmts
@@ -282,4 +207,4 @@ handleNav update rf branch = do
               return $ Cmt cid filePath l t False
               ) filteredCmts
             let finalState = updatedState { rsComments = rsComments updatedState ++ updatedCmts }
-            saveState rf finalState
+            saveReviewState rf finalState
