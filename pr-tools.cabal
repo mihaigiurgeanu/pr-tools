@@ -1,179 +1,98 @@
 cabal-version:       3.0
-
 name:                pr-tools
-
 version:             0.1.0.0
-
 license:             BSD-3-Clause
-
-author:              Your Name
-
-maintainer:          your@email
-
+author:              Mihai Giurgeanu
+maintainer:          mihai.giurgeanu@gmail.com
 build-type:          Simple
-
 extra-source-files:  CHANGELOG.md
 
 common commons
-
   default-language: Haskell2010
-
   build-depends:    base >=4.14 && <5
 
 library
-
   import: commons
-
   exposed-modules:  PRTools.Config
-
                   , PRTools.PRState
-
                   , PRTools.ReviewState
-
   build-depends:    aeson
-
                   , containers
-
                   , directory
-
                   , process
-
                   , yaml
-
   hs-source-dirs:   src
 
 executable pr-snapshot
-
   import: commons
-
   main-is:          pr-snapshot.hs
-
   build-depends:    pr-tools
-
                   , directory
-
                   , filepath
-
                   , optparse-applicative
-
                   , process
-
   hs-source-dirs:   app
 
 executable pr-send
-
   import: commons
-
   main-is:          pr-send.hs
-
   build-depends:    aeson
-
                   , bytestring
-
                   , case-insensitive
-
                   , directory
-
                   , filepath
-
                   , http-client
-
                   , http-client-tls
-
                   , http-types
-
                   , process
-
   hs-source-dirs:   app
 
 executable pr-track
-
   import: commons
-
   main-is:          pr-track.hs
-
   build-depends:    pr-tools
-
                   , containers
-
                   , process
-
   hs-source-dirs:   app
 
 executable pr-merge
-
   import: commons
-
   main-is:          pr-merge.hs
-
   build-depends:    pr-tools
-
                   , aeson
-
                   , bytestring
-
                   , case-insensitive
-
                   , filepath
-
                   , http-client
-
                   , http-client-tls
-
                   , http-types
-
                   , optparse-applicative
-
                   , process
-
                   , time
-
   hs-source-dirs:   app
 
 executable pr-review
-
   import: commons
-
   main-is:          pr-review.hs
-
   build-depends:    pr-tools
-
                   , Diff
-
                   , directory
-
                   , filepath
-
                   , Glob
-
                   , optparse-applicative
-
                   , process
-
                   , temporary
-
                   , uuid
-
   hs-source-dirs:   app
 
 executable pr-view
-
   import: commons
-
   main-is:          pr-view.hs
-
   build-depends:    pr-tools
-
                   , containers
-
                   , filepath
-
                   , Glob
-
                   , optparse-applicative
-
                   , process
-
                   , yaml
-
   hs-source-dirs:   app
