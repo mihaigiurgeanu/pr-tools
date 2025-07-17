@@ -48,6 +48,7 @@ main = do
   root <- fmap trimTrailing (readProcess "git" ["rev-parse", "--show-toplevel"] "")
   let outputDir = root </> ".pr-drafts"
   createDirectoryIfMissing True outputDir
+  -- the branch is in the form 'feature/feature-x' or 'fix/feature-x' AI!
   let outputPath = outputDir </> (branch ++ ".md")
   writeFile outputPath md
   putStrLn $ "Snapshot written to " ++ outputPath
