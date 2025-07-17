@@ -152,12 +152,18 @@ main = do
   reviewFile <- getReviewFile branch reviewer
   case cmd of
     Start -> do
-      filesOut <- readProcess "git" ["diff", "--name-only", baseB, "--"] ""
-      let files = lines filesOut
-      let state = ReviewState "active" 0 files [] branch reviewer
-      exists <- doesFileExist reviewFile
-      if exists then putStrLn "Review already started, resuming" else return ()
-      saveReviewState reviewFile state
+      mState <- loadReviewState reviewFile
+      case mState of
+        Just existing -> do
+          let resumed = existing { rsStatus = "active" }  -- Optionally update files or index if needed
+          saveReviewState reviewFile resumed
+          putStrLn "Resuming existing review"
+        Nothing -> do
+          filesOut <- readProcess "git" ["diff", "--name-only", baseB, "--"] ""
+          let files = lines filesOut
+          let newState = ReviewState "active" 0 files [] branch reviewer
+          saveReviewState reviewFile newState
+          putStrLn "New review started"
     Next -> handleNav NavNext reviewFile branch baseB
     Previous -> handleNav NavPrevious reviewFile branch baseB
     Open -> handleNav NavOpen reviewFile branch baseB
