@@ -9,7 +9,7 @@ import PRTools.Config (trimTrailing)
 import PRTools.PRState
 
 data Command =
-    Approve { aBranch :: Maybe String, aBy :: Maybe String }
+    Approve { aBranch :: Maybe String, aBy :: String }
   | Status { sBranch :: Maybe String }
   | List
 
@@ -22,7 +22,7 @@ commandParser = subparser
   where
     approveParser = Approve
       <$> optional (strArgument (metavar "BRANCH" <> help "Branch to approve (default: current)"))
-      <*> optional (strOption (long "by" <> metavar "NAME" <> help "Approver name (default: git user.name)"))
+      <*> strOption (long "by" <> metavar "NAME" <> help "Approver name")
     statusParser = Status
       <$> optional (strArgument (metavar "BRANCH" <> help "Branch to check (default: current)"))
 
@@ -31,13 +31,10 @@ main = do
   cmd <- execParser $ info (commandParser <**> helper) idm
   state <- loadState
   case cmd of
-    Approve mbBranch mbBy -> do
+    Approve mbBranch by -> do
       branch <- case mbBranch of
         Just b -> return b
         Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
-      by <- case mbBy of
-        Just n -> return n
-        Nothing -> fmap trimTrailing (readProcess "git" ["config", "user.name"] "")
       let pr = Map.findWithDefault (PRState "open" []) branch state
       let newApprovals = if by `notElem` prApprovals pr then by : prApprovals pr else prApprovals pr
       let newPr = PRState (prStatus pr) newApprovals
