@@ -35,53 +35,74 @@ optsParser = Opts
 
 main :: IO ()
 main = do
-  opts <- execParser $ info (optsParser <**> helper) idm
-  baseB <- case optBase opts of
-    Just b -> return b
-    Nothing -> getBaseBranch
-  branch <- case optBranch opts of
-    Just b -> return b
-    Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
-  let strategy = optStrategy opts
-  state <- loadState
-  case Map.lookup branch state of
-    Nothing -> do
-      hPutStrLn stderr $ "PR " ++ branch ++ " not approved or not tracked"
-      exitFailure
-    Just pr -> if null (prApprovals pr) then do
-      hPutStrLn stderr $ "PR " ++ branch ++ " not approved or not tracked"
-      exitFailure
-      else do
-        callProcess "git" ["checkout", baseB]
-        case strategy of
-          "fast-forward" -> callProcess "git" ["merge", "--ff-only", branch]
-          "squash" -> do
-            callProcess "git" ["merge", "--squash", branch]
-            callProcess "git" ["commit", "--message", "Squashed merge of " ++ branch]
-          "rebase" -> do
-            callProcess "git" ["checkout", branch]
-            callProcess "git" ["rebase", baseB]
-            callProcess "git" ["checkout", baseB]
-            callProcess "git" ["merge", "--ff-only", branch]
-          _ -> do
-            hPutStrLn stderr "Invalid strategy"
-            exitFailure
-        let newState = Map.insert branch (PRState "merged" (prApprovals pr)) state
-        saveState newState
-        currentTime <- getCurrentTime
-        let dateStr = formatTime defaultTimeLocale "%Y-%m-%d" currentTime
-        withFile "CHANGELOG.md" AppendMode $ \h -> hPutStrLn h $ "\n- Merged " ++ branch ++ " using " ++ strategy ++ " on " ++ dateStr
-        mbWebhook <- getSlackWebhook
-        case mbWebhook of
-          Nothing -> return ()
-          Just webhook -> do
-            manager <- newManager tlsManagerSettings
-            initReq <- parseRequest webhook
-            let req = initReq
-                  { method = "POST"
-                  , requestBody = RequestBodyLBS $ encode $ object ["text" .= ("PR " ++ branch ++ " merged using " ++ strategy)]
-                  , requestHeaders = [(mk "Content-Type", "application/json")]
-                  }
-            response <- httpLbs req manager
-            return ()
-        putStrLn $ "Merged " ++ branch ++ " using " ++ strategy
+  args <- getArgs
+  if not (null args) && head args == "help" then putStrLn helpText else do
+    opts <- execParser $ info (optsParser <**> helper) idm
+    baseB <- case optBase opts of
+      Just b -> return b
+      Nothing -> getBaseBranch
+    branch <- case optBranch opts of
+      Just b -> return b
+      Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
+    let strategy = optStrategy opts
+    state <- loadState
+    case Map.lookup branch state of
+      Nothing -> do
+        hPutStrLn stderr $ "PR " ++ branch ++ " not approved or not tracked"
+        exitFailure
+      Just pr -> if null (prApprovals pr) then do
+        hPutStrLn stderr $ "PR " ++ branch ++ " not approved or not tracked"
+        exitFailure
+        else do
+          callProcess "git" ["checkout", baseB]
+          case strategy of
+            "fast-forward" -> callProcess "git" ["merge", "--ff-only", branch]
+            "squash" -> do
+              callProcess "git" ["merge", "--squash", branch]
+              callProcess "git" ["commit", "--message", "Squashed merge of " ++ branch]
+            "rebase" -> do
+              callProcess "git" ["checkout", branch]
+              callProcess "git" ["rebase", baseB]
+              callProcess "git" ["checkout", baseB]
+              callProcess "git" ["merge", "--ff-only", branch]
+            _ -> do
+              hPutStrLn stderr "Invalid strategy"
+              exitFailure
+          let newState = Map.insert branch (PRState "merged" (prApprovals pr)) state
+          saveState newState
+          currentTime <- getCurrentTime
+          let dateStr = formatTime defaultTimeLocale "%Y-%m-%d" currentTime
+          withFile "CHANGELOG.md" AppendMode $ \h -> hPutStrLn h $ "\n- Merged " ++ branch ++ " using " ++ strategy ++ " on " ++ dateStr
+          mbWebhook <- getSlackWebhook
+          case mbWebhook of
+            Nothing -> return ()
+            Just webhook -> do
+              manager <- newManager tlsManagerSettings
+              initReq <- parseRequest webhook
+              let req = initReq
+                    { method = "POST"
+                    , requestBody = RequestBodyLBS $ encode $ object ["text" .= ("PR " ++ branch ++ " merged using " ++ strategy)]
+                    , requestHeaders = [(mk "Content-Type", "application/json")]
+                    }
+              response <- httpLbs req manager
+              return ()
+          putStrLn $ "Merged " ++ branch ++ " using " ++ strategy
+
+helpText :: String
+helpText = unlines
+  [ "pr-merge"
+  , ""
+  , "Merge approved PRs with various strategies and update changelog."
+  , ""
+  , "Usage: pr-merge [BRANCH] [--strategy STRATEGY] [--base-branch BASE]"
+  , ""
+  , "Arguments:"
+  , "  BRANCH              The feature branch to merge (default: current)"
+  , ""
+  , "Options:"
+  , "  --strategy STRATEGY Merge strategy (fast-forward, squash, rebase) (default: fast-forward)"
+  , "  --base-branch BASE  Override the base branch"
+  , ""
+  , "Examples:"
+  , "  pr-merge my-feature --strategy squash"
+  ]
