@@ -8,7 +8,7 @@ import System.Environment (getArgs)
 import System.FilePath ( (</>) )
 import System.FilePath.Glob (glob)
 import System.Process (readProcess)
-import PRTools.Config (getBaseBranch, reviewDir)
+import PRTools.Config (getBaseBranch, reviewDir, trimTrailing)
 import PRTools.ReviewState (ReviewState(..), Cmt(..))
 
 data Comment = Comment { cReviewer :: String, cText :: String, cResolved :: Bool, cId :: String } deriving Show
@@ -35,13 +35,13 @@ collectComments branch = do
     ) Map.empty rfs
 
 data Opts = Opts
-  { optBranch :: String
+  { optBranch :: Maybe String
   , optBase :: Maybe String
   }
 
 optsParser :: Parser Opts
 optsParser = Opts
-  <$> strArgument (metavar "BRANCH" <> help "The feature branch")
+  <$> optional (strArgument (metavar "BRANCH" <> help "The feature branch (default: current)"))
   <*> optional (strOption (long "base-branch" <> metavar "BASE" <> help "Override the base branch"))
 
 main :: IO ()
@@ -50,7 +50,9 @@ main = do
   baseB <- case optBase opts of
     Just b -> return b
     Nothing -> getBaseBranch
-  let branch = optBranch opts
+  branch <- case optBranch opts of
+    Just b -> return b
+    Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
   comms <- collectComments branch
   diffText <- readProcess "git" ["diff", baseB, branch, "--"] ""
   let diffLines = lines diffText

@@ -99,7 +99,7 @@ pr-review list
 
 View annotated diff:
 ```
-pr-view <BRANCH> [--base-branch BASE]
+pr-view [BRANCH] [--base-branch BASE]
 ```
 
 ## Contributing
