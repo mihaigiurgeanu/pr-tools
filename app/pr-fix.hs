@@ -41,6 +41,7 @@ data FixCommand =
   | FPrevious
   | FEnd
   | FSend
+  | FResolve { fId :: String, fStatus :: String, fAnswer :: Maybe String }
 
 data Global = Global {}
 
@@ -57,7 +58,13 @@ commandParser = subparser
  <> command "previous" (info (pure FPrevious) (progDesc "Previous file"))
  <> command "end" (info (pure FEnd) (progDesc "End fix session"))
  <> command "send" (info (pure FSend) (progDesc "Send fix summary to Slack"))
+ <> command "resolve" (info resolveParser (progDesc "Resolve a comment"))
   )
+  where
+    resolveParser = FResolve
+      <$> strOption (long "id" <> metavar "ID" <> help "Comment ID")
+      <*> strOption (long "status" <> metavar "STATUS" <> help "Status (e.g., solved, not-solved, will-not-solve)")
+      <*> optional (strOption (long "answer" <> metavar "ANSWER" <> help "Optional answer/explanation"))
 
 data App = App { appGlobal :: Global, appCommand :: FixCommand }
 
@@ -232,6 +239,18 @@ main = do
     FOpen -> handleNav NavOpen fixFile branch
     FNext -> handleNav NavNext fixFile branch
     FPrevious -> handleNav NavPrevious fixFile branch
+    FResolve rid status mbAnswer -> do
+      mState <- loadReviewState fixFile
+      case mState of
+        Nothing -> hPutStrLn stderr "No fix session"
+        Just state -> do
+          let updatedComments = map (\c -> if cmId c == rid then c { cmStatus = status, cmResolved = (status == "solved"), cmAnswer = mbAnswer } else c) (rsComments state)
+          if updatedComments == rsComments state
+            then putStrLn "Comment not found"
+            else do
+              let newState = state { rsComments = updatedComments }
+              saveReviewState fixFile newState
+              putStrLn $ "Updated " ++ rid ++ " to " ++ status
     FEnd -> do
       mState <- loadReviewState fixFile
       case mState of
