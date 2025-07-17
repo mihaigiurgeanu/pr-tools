@@ -26,8 +26,8 @@ main = do
     Just webhook -> do
       args <- getArgs
       branch <- if not (null args) then return (head args) else fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
-      home <- getHomeDirectory
-      let mdPath = home </> "pr-drafts" </> (branch ++ ".md")
+      root <- fmap trimTrailing (readProcess "git" ["rev-parse", "--show-toplevel"] "")
+      let mdPath = root </> ".pr-drafts" </> (branch ++ ".md")
       exists <- doesFileExist mdPath
       if not exists
         then do

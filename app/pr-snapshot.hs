@@ -45,9 +45,8 @@ main = do
         , diffSummary
         , "```"
         ]
-  home <- getHomeDirectory
-  -- outputDir should be in the project's to directory, not in home AI!
-  let outputDir = home </> "pr-drafts"
+  root <- fmap trimTrailing (readProcess "git" ["rev-parse", "--show-toplevel"] "")
+  let outputDir = root </> ".pr-drafts"
   createDirectoryIfMissing True outputDir
   let outputPath = outputDir </> (branch ++ ".md")
   writeFile outputPath md
