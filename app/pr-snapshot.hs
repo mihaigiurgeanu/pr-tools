@@ -46,6 +46,7 @@ main = do
         , "```"
         ]
   home <- getHomeDirectory
+  -- outputDir should be in the project's to directory, not in home AI!
   let outputDir = home </> "pr-drafts"
   createDirectoryIfMissing True outputDir
   let outputPath = outputDir </> (branch ++ ".md")
