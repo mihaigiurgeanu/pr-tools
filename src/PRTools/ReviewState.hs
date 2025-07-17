@@ -2,6 +2,7 @@ module PRTools.ReviewState where
 
 import Data.Aeson (ToJSON(..), object, (.=))
 import Data.Aeson.Key (fromString)
+import Data.Aeson.Types ((.!=))
 import Data.Yaml (FromJSON(..), decodeFileEither, encodeFile, parseJSON, withObject, (.:), (.:?))
 import System.Directory (doesFileExist)
 
@@ -20,6 +21,8 @@ data Cmt = Cmt
   , cmLine :: Int
   , cmText :: String
   , cmResolved :: Bool
+  , cmStatus :: String
+  , cmAnswer :: Maybe String
   } deriving (Eq, Show)
 
 instance FromJSON ReviewState where
@@ -48,6 +51,8 @@ instance FromJSON Cmt where
     <*> v .: fromString "line"
     <*> v .: fromString "text"
     <*> v .: fromString "resolved"
+    <*> (v .:? fromString "status" .!= "not-solved")
+    <*> (v .:? fromString "answer")
 
 instance ToJSON Cmt where
   toJSON cm = object
@@ -56,6 +61,8 @@ instance ToJSON Cmt where
     , fromString "line" .= cmLine cm
     , fromString "text" .= cmText cm
     , fromString "resolved" .= cmResolved cm
+    , fromString "status" .= cmStatus cm
+    , fromString "answer" .= cmAnswer cm
     ]
 
 loadReviewState :: FilePath -> IO (Maybe ReviewState)

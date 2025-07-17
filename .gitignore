@@ -3,4 +3,7 @@ dist-newstyle/
 .pr-drafts/
 .pr-reviews/
 *.swp
+.pr-fixes/
+.pr-tools.yaml
 
+.pr-state.yaml

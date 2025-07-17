@@ -18,18 +18,18 @@ import System.Exit (exitFailure)
 import System.FilePath ((</>))
 import System.IO (IOMode(AppendMode), hPutStrLn, stderr, withFile)
 import System.Process (callProcess, readProcess)
-import PRTools.Config (getBaseBranch, getSlackWebhook)
+import PRTools.Config (getBaseBranch, getSlackWebhook, trimTrailing)
 import PRTools.PRState
 
 data Opts = Opts
-  { optBranch :: String
+  { optBranch :: Maybe String
   , optStrategy :: String
   , optBase :: Maybe String
   }
 
 optsParser :: Parser Opts
 optsParser = Opts
-  <$> strArgument (metavar "BRANCH" <> help "The feature branch to merge")
+  <$> optional (strArgument (metavar "BRANCH" <> help "The feature branch to merge (default: current branch)"))
   <*> strOption (long "strategy" <> value "fast-forward" <> showDefault <> metavar "STRATEGY" <> help "Merge strategy (fast-forward, squash, rebase)")
   <*> optional (strOption (long "base-branch" <> metavar "BASE" <> help "Override the base branch"))
 
@@ -39,7 +39,9 @@ main = do
   baseB <- case optBase opts of
     Just b -> return b
     Nothing -> getBaseBranch
-  let branch = optBranch opts
+  branch <- case optBranch opts of
+    Just b -> return b
+    Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
   let strategy = optStrategy opts
   state <- loadState
   case Map.lookup branch state of

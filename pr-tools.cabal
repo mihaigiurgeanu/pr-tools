@@ -53,6 +53,7 @@ executable pr-track
   main-is:          pr-track.hs
   build-depends:    pr-tools
                   , containers
+                  , optparse-applicative
                   , process
   hs-source-dirs:   app
 
@@ -77,10 +78,15 @@ executable pr-review
   import: commons
   main-is:          pr-review.hs
   build-depends:    pr-tools
+                  , aeson
+                  , bytestring
                   , Diff
                   , directory
                   , filepath
                   , Glob
+                  , http-client
+                  , http-client-tls
+                  , http-types
                   , optparse-applicative
                   , process
                   , temporary
@@ -97,4 +103,32 @@ executable pr-view
                   , optparse-applicative
                   , process
                   , yaml
+  hs-source-dirs:   app
+
+executable pr-fix
+  import: commons
+  main-is:          pr-fix.hs
+  build-depends:    pr-tools
+                  , aeson
+                  , bytestring
+                  , containers
+                  , directory
+                  , filepath
+                  , http-client
+                  , http-client-tls
+                  , http-types
+                  , optparse-applicative
+                  , process
+                  , split
+                  , temporary
+                  , uuid
+                  , yaml
+  hs-source-dirs:   app
+
+executable pr-init
+  import: commons
+  main-is:          pr-init.hs
+  build-depends:    pr-tools
+                  , directory
+                  , process
   hs-source-dirs:   app

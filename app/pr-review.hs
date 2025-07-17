@@ -1,9 +1,17 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+import Control.Exception (catch, IOException)
+import Data.Aeson (encode, object, (.=))
+import qualified Data.ByteString.Lazy as LBS
 import Data.Algorithm.Diff (PolyDiff(..), getGroupedDiff)
 import Data.Char (isSpace)
-import Data.List (filter, foldl')
+import Data.List (filter, foldl', intercalate)
 import Data.Maybe (fromMaybe)
 import Data.UUID (toString)
 import Data.UUID.V4 (nextRandom)
+import Network.HTTP.Client (Response, RequestBody(RequestBodyLBS), httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseStatus)
+import Network.HTTP.Client.TLS (tlsManagerSettings)
+import Network.HTTP.Types (statusCode)
 import Options.Applicative
 import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.Environment (lookupEnv)
@@ -13,7 +21,7 @@ import System.FilePath.Glob (glob)
 import System.IO (hClose, hPutStr, hPutStrLn, stderr)
 import System.IO.Temp (withSystemTempFile)
 import System.Process (callProcess, readProcess)
-import PRTools.Config (getBaseBranch, reviewDir, trimTrailing, sanitizeBranch)
+import PRTools.Config (getBaseBranch, getSlackWebhook, reviewDir, trimTrailing, sanitizeBranch)
 import PRTools.ReviewState
 
 data Global = Global { gBaseBranch :: Maybe String }
@@ -37,6 +45,7 @@ data Command =
   | Resolve { rId :: String }
   | End
   | List
+  | Send
 
 data NavAction = NavNext | NavPrevious | NavOpen
 
@@ -52,6 +61,7 @@ commandParser = subparser
  <> command "resolve" (info resolveParser (progDesc "Resolve comment"))
  <> command "end" (info (pure End) (progDesc "End review"))
  <> command "list" (info (pure List) (progDesc "List reviews"))
+ <> command "send" (info (pure Send) (progDesc "Send review to Slack"))
   )
   where
     commentParser = Comment
@@ -108,8 +118,10 @@ extractComments original edited =
 
 openEditor :: String -> String -> String -> IO [(Int, String)]
 openEditor filePath branch baseB = do
-  baseContent <- readProcess "git" ["show", baseB ++ ":" ++ filePath, "--"] ""
-  featureContent <- readProcess "git" ["show", branch ++ ":" ++ filePath, "--"] ""
+  baseContent <- catch (readProcess "git" ["show", baseB ++ ":" ++ filePath, "--"] "")
+                       (\e -> do hPutStrLn stderr $ "Warning: " ++ show (e :: IOException); return "")
+  featureContent <- catch (readProcess "git" ["show", branch ++ ":" ++ filePath, "--"] "")
+                          (\e -> do hPutStrLn stderr $ "Warning: " ++ show (e :: IOException); return "")
   let baseLines = lines baseContent
   let featureLines = lines featureContent
   let conflictLines = generateConflictContent baseLines featureLines
@@ -150,8 +162,15 @@ main = do
     Previous -> handleNav NavPrevious reviewFile branch baseB
     Open -> handleNav NavOpen reviewFile branch baseB
     Files -> do
-      out <- readProcess "git" ["diff", "--name-only", baseB, "--"] ""
-      putStr out
+      mState <- loadReviewState reviewFile
+      case mState of
+        Just state | rsStatus state == "active" -> do
+          let files = rsFiles state
+          let current = rsCurrentIndex state
+          mapM_ (\(i, f) -> putStrLn $ (if i == current then "> " else "  ") ++ f) (zip [0..] files)
+        _ -> do
+          out <- readProcess "git" ["diff", "--name-only", baseB, "--"] ""
+          putStr out
     Changes -> do
       out <- readProcess "git" ["diff", baseB, "--"] ""
       putStr out
@@ -167,7 +186,7 @@ main = do
           else do
             u <- nextRandom
             let cmtId = take 8 $ filter (/= '-') $ toString u
-            let newComment = Cmt cmtId file line text False
+            let newComment = Cmt cmtId file line text False "not-solved" Nothing
             let newState = state { rsComments = rsComments state ++ [newComment] }
             saveReviewState reviewFile newState
             putStrLn $ "Added comment " ++ cmtId
@@ -203,6 +222,39 @@ main = do
           Just state -> putStrLn $ rsBranch state ++ " by " ++ rsReviewer state ++ ": " ++ rsStatus state
           Nothing -> return ()
         ) rfs
+    Send -> do
+      mState <- loadReviewState reviewFile
+      case mState of
+        Nothing -> do
+          hPutStrLn stderr "No review"
+          exitFailure
+        Just state -> do
+          let comments = rsComments state
+          commentTexts <- mapM (\c -> do
+            content <- readProcess "git" ["show", branch ++ ":" ++ cmFile c] ""
+            let fileLines = lines content
+            let start = max 0 (cmLine c - 4)
+            let context = take 7 (drop start fileLines)
+            return $ "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nComment: " ++ cmText c ++ "\nContext:\n" ++ unlines (map ("  " ++) context) ++ "\n---\n"
+            ) comments
+          let message = "Review for " ++ branch ++ " by " ++ reviewer ++ ":\n" ++ concat commentTexts
+          mbWebhook <- getSlackWebhook
+          case mbWebhook of
+            Nothing -> do
+              hPutStrLn stderr "Slack webhook not configured"
+              exitFailure
+            Just webhook -> do
+              manager <- newManager tlsManagerSettings
+              initReq <- parseRequest webhook
+              let req = initReq
+                    { method = "POST"
+                    , requestBody = RequestBodyLBS $ encode $ object ["text" .= message]
+                    , requestHeaders = [("Content-Type", "application/json")]
+                    }
+              response <- httpLbs req manager
+              if statusCode (responseStatus response) == 200
+                then putStrLn "Review sent to Slack"
+                else hPutStrLn stderr "Error sending to Slack"
 
 handleNav :: NavAction -> FilePath -> String -> String -> IO ()
 handleNav action rf branch baseB = do
@@ -215,25 +267,34 @@ handleNav action rf branch baseB = do
       hPutStrLn stderr "No active review"
       exitFailure
       else do
-        let (updatedState, maybeMsg) = case action of
-              NavOpen -> (state, Nothing)
-              NavPrevious -> if rsCurrentIndex state > 0
-                             then (state { rsCurrentIndex = rsCurrentIndex state - 1 }, Nothing)
-                             else (state, Just "No previous files")
-              NavNext -> if rsCurrentIndex state < length (rsFiles state) - 1
-                         then (state { rsCurrentIndex = rsCurrentIndex state + 1 }, Nothing)
-                         else (state, Just "No more files")
-        case maybeMsg of
-          Just msg -> putStrLn msg
-          Nothing -> do
-            saveReviewState rf updatedState
-            let filePath = rsFiles updatedState !! rsCurrentIndex updatedState
-            newCmts <- openEditor filePath branch baseB
-            let filteredCmts = filter (\(_, t) -> not (all isSpace t)) newCmts
-            updatedCmts <- mapM (\(l, t) -> do
-              u <- nextRandom
-              let cid = take 8 $ filter (/= '-') $ toString u
-              return $ Cmt cid filePath l t False
-              ) filteredCmts
-            let finalState = updatedState { rsComments = rsComments updatedState ++ updatedCmts }
-            saveReviewState rf finalState
+        let doOpen st = do
+              let filePath = rsFiles st !! rsCurrentIndex st
+              newCmts <- openEditor filePath branch baseB
+              let filteredCmts = filter (\(_, t) -> not (all isSpace t)) newCmts
+              updatedCmts <- mapM (\(l, t) -> do
+                u <- nextRandom
+                let cid = take 8 $ filter (/= '-') $ toString u
+                return $ Cmt cid filePath l t False "not-solved" Nothing
+                ) filteredCmts
+              let finalState = st { rsComments = rsComments st ++ updatedCmts }
+              saveReviewState rf finalState
+              return finalState
+        let tryOpen st = catch (doOpen st) (\e -> do
+              hPutStrLn stderr $ "Error opening file: " ++ show (e :: IOException)
+              return st)
+        case action of
+          NavOpen -> do
+            _ <- tryOpen state
+            return ()
+          NavPrevious -> do
+            updated <- tryOpen state
+            if rsCurrentIndex updated > 0 then do
+              let newState = updated { rsCurrentIndex = rsCurrentIndex updated - 1 }
+              saveReviewState rf newState
+            else putStrLn "No previous files"
+          NavNext -> do
+            updated <- tryOpen state
+            if rsCurrentIndex updated < length (rsFiles updated) - 1 then do
+              let newState = updated { rsCurrentIndex = rsCurrentIndex updated + 1 }
+              saveReviewState rf newState
+            else putStrLn "No more files"
