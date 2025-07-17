@@ -6,7 +6,7 @@ import PRTools.Config (Config(..), getBaseBranch, getSlackWebhook)
 
 import Control.Monad (when)
 import Data.List (isInfixOf)
-import System.IO (IOMode(ReadMode, AppendMode), hGetContents, hPutStr, withFile)
+import System.IO (IOMode(ReadMode, AppendMode), hGetContents, hPutStr, withFile, hFlush, stdout)
 
 main :: IO ()
 main = do
@@ -47,9 +47,11 @@ main = do
     else do
       putStrLn "Creating .pr-tools.yaml"
       putStr "Enter base-branch (default: main): "
+      hFlush stdout
       baseInput <- getLine
       let base = if null baseInput then "main" else baseInput
       putStr "Enter slack-webhook (optional, press Enter to skip): "
+      hFlush stdout
       webhookInput <- getLine
       let webhook = if null webhookInput then "" else "slack-webhook: " ++ webhookInput
       let content = "base-branch: " ++ base ++ "\n" ++ webhook
