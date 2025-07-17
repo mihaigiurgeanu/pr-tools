@@ -31,24 +31,21 @@ This will install the binaries in `~/.cabal/bin` (or equivalent). Add this direc
 
 ## Configuration
 
-### Base Branch
+### Base Branch and Slack Webhook
 
 Create a `.pr-tools.yaml` file in the project root with:
 ```yaml
 base-branch: main  # or your default base branch
+slack-webhook: "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"  # optional Slack webhook URL
 ```
 
 ### Slack Integration
 
-For `pr-send` and `pr-merge` to post notifications to Slack, set the `SLACK_WEBHOOK` environment variable to a valid Slack Incoming Webhook URL.
+For `pr-send` and `pr-merge` to post notifications to Slack, add the `slack-webhook` to your `.pr-tools.yaml` file.
 
 - Generate a webhook URL in your Slack workspace: Go to [Slack Apps](https://api.slack.com/apps), create an app, and enable Incoming Webhooks.
-- Set the variable (e.g., in your shell):
-  ```
-  export SLACK_WEBHOOK="https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"
-  ```
 
-If not set, commands requiring Slack will fail with an error.
+If not set, `pr-send` will fail with an error, and `pr-merge` will skip the notification.
 
 ## Usage
 

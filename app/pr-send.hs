@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import PRTools.Config (trimTrailing, sanitizeBranch)
+import PRTools.Config (trimTrailing, sanitizeBranch, getSlackWebhook)
 
 import Data.Aeson (encode, object, (.=))
 import qualified Data.ByteString as BS
@@ -10,7 +10,7 @@ import Network.HTTP.Client (RequestBody(RequestBodyLBS), httpLbs, method, newMan
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types (statusCode)
 import System.Directory (doesFileExist, getHomeDirectory)
-import System.Environment (getArgs, lookupEnv)
+import System.Environment (getArgs)
 import System.Exit (exitWith, ExitCode(..))
 import System.FilePath ((</>))
 import System.IO (hPutStrLn, stderr)
@@ -18,10 +18,10 @@ import System.Process (readProcess)
 
 main :: IO ()
 main = do
-  mbWebhook <- lookupEnv "SLACK_WEBHOOK"
+  mbWebhook <- getSlackWebhook
   case mbWebhook of
     Nothing -> do
-      hPutStrLn stderr "Error: SLACK_WEBHOOK environment variable not set"
+      hPutStrLn stderr "Error: slack-webhook not set in .pr-tools.yaml"
       exitWith (ExitFailure 1)
     Just webhook -> do
       args <- getArgs

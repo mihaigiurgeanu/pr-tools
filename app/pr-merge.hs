@@ -13,12 +13,12 @@ import Network.HTTP.Client (RequestBody(RequestBodyLBS), httpLbs, method, newMan
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types (statusCode)
 import Options.Applicative
-import System.Environment (getArgs, lookupEnv)
+import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.FilePath ((</>))
 import System.IO (IOMode(AppendMode), hPutStrLn, stderr, withFile)
 import System.Process (callProcess, readProcess)
-import PRTools.Config (getBaseBranch)
+import PRTools.Config (getBaseBranch, getSlackWebhook)
 import PRTools.PRState
 
 data Opts = Opts
@@ -69,7 +69,7 @@ main = do
         currentTime <- getCurrentTime
         let dateStr = formatTime defaultTimeLocale "%Y-%m-%d" currentTime
         withFile "CHANGELOG.md" AppendMode $ \h -> hPutStrLn h $ "\n- Merged " ++ branch ++ " using " ++ strategy ++ " on " ++ dateStr
-        mbWebhook <- lookupEnv "SLACK_WEBHOOK"
+        mbWebhook <- getSlackWebhook
         case mbWebhook of
           Nothing -> return ()
           Just webhook -> do
