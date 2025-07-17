@@ -30,7 +30,7 @@ getDynamicBase :: IO String
 getDynamicBase = do
   ref <- catch (readProcess "git" ["symbolic-ref", "refs/remotes/origin/HEAD"] "")
                (\(_ :: IOException) -> return "")
-  let trimmedRef = init ref  -- remove trailing newline
+  let trimmedRef = reverse $ dropWhile (== '\n') $ reverse ref  -- remove trailing newlines
   if null trimmedRef
     then return "main"
     else do
