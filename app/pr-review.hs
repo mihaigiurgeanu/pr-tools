@@ -13,7 +13,7 @@ import System.FilePath.Glob (glob)
 import System.IO (hPutStrLn, stderr)
 import System.IO.Temp (withSystemTempFile)
 import System.Process (callProcess, readProcess)
-import PRTools.Config (getBaseBranch, reviewDir, trimTrailing)
+import PRTools.Config (getBaseBranch, reviewDir, trimTrailing, sanitizeBranch)
 import PRTools.ReviewState
 
 data Global = Global { gBaseBranch :: Maybe String }
@@ -64,8 +64,8 @@ commandParser = subparser
 getReviewFile :: String -> String -> IO FilePath
 getReviewFile branch reviewer = do
   createDirectoryIfMissing False reviewDir
-  -- the branch is in the form 'feature/feature-name' AI!
-  return $ reviewDir </> branch ++ "-" ++ reviewer ++ ".yaml"
+  let safeBranch = sanitizeBranch branch
+  return $ reviewDir </> safeBranch ++ "-" ++ reviewer ++ ".yaml"
 
 generateConflictContent :: [String] -> [String] -> [String]
 generateConflictContent baseLines featureLines =

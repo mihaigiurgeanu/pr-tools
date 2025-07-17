@@ -8,7 +8,7 @@ import System.Environment (getArgs)
 import System.FilePath ( (</>) )
 import System.FilePath.Glob (glob)
 import System.Process (readProcess)
-import PRTools.Config (getBaseBranch, reviewDir, trimTrailing)
+import PRTools.Config (getBaseBranch, reviewDir, trimTrailing, sanitizeBranch)
 import PRTools.ReviewState (ReviewState(..), Cmt(..))
 
 data Comment = Comment { cReviewer :: String, cText :: String, cResolved :: Bool, cId :: String } deriving Show
@@ -17,7 +17,8 @@ type Comments = Map.Map String (Map.Map Int [Comment])
 
 collectComments :: String -> IO Comments
 collectComments branch = do
-  rfs <- glob (reviewDir </> (branch ++ "-*.yaml"))
+  let safeBranch = sanitizeBranch branch
+  rfs <- glob (reviewDir </> (safeBranch ++ "-*.yaml"))
   foldM (\acc rf -> do
     mState <- decodeFileEither rf
     case mState of
