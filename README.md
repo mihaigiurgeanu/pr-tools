@@ -119,9 +119,10 @@ pr-review list
 
 ### pr-view
 
-View annotated diff:
+View annotated diff or comments:
 ```
-pr-view [BRANCH] [--base-branch BASE]
+pr-view diff [BRANCH] [--base-branch BASE] [--full]  # Annotated diff, use --full for full files including unchanged areas
+pr-view comments [BRANCH]  # List all comments with context
 ```
 
 ### pr-fix
@@ -134,6 +135,7 @@ pr-fix files
 pr-fix open
 pr-fix next
 pr-fix previous
+pr-fix resolve --id ID --status STATUS [--answer "Explanation"]
 pr-fix end
 pr-fix send
 ```
@@ -152,8 +154,8 @@ pr-init
 3. **Send to Slack**: Run `pr-send` to notify the team via Slack.
 4. **Track Approvals**: Team members approve using `pr-track approve <branch>` or Slack reactions.
 5. **Conduct Review**: Reviewer runs `pr-review start`, navigates files with `next`/`open`, adds comments, then `pr-review send` to send compact review to Slack.
-6. **Fix Comments**: Developer runs `pr-fix start`, pastes the Slack review message, navigates with `pr-fix next`/`open` to edit files and mark comments (solved/not-solved/will-not-solve), adds answers, then `pr-fix end` to commit changes, and `pr-fix send` to report back via Slack.
-7. **View Annotated Diff**: Anyone can run `pr-view <branch>` to see changes with comments.
+6. **Fix Comments**: Developer runs `pr-fix start`, pastes the Slack review message, navigates with `pr-fix next`/`open` to edit files and mark comments (solved/not-solved/will-not-solve), adds answers, or use `pr-fix resolve` for CLI updates, then `pr-fix end` to commit changes, and `pr-fix send` to report back via Slack.
+7. **View Annotated Diff**: Anyone can run `pr-view <branch>` to see changes with comments (use --full for full files or `pr-view comments` for comment list).
 8. **Merge PR**: Once approved, run `pr-merge <branch>` to merge and update changelog.
 
 This workflow enables collaborative reviews without committing review files to the repo, using Slack for communication.
