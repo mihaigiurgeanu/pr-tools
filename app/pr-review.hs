@@ -64,6 +64,7 @@ commandParser = subparser
 getReviewFile :: String -> String -> IO FilePath
 getReviewFile branch reviewer = do
   createDirectoryIfMissing False reviewDir
+  -- the branch is in the form 'feature/feature-name' AI!
   return $ reviewDir </> branch ++ "-" ++ reviewer ++ ".yaml"
 
 generateConflictContent :: [String] -> [String] -> [String]
