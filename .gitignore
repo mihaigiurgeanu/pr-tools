@@ -1,4 +1,6 @@
 .aider*
 dist-newstyle/
 .pr-drafts/
+.pr-reviews/
+*.swp
 
