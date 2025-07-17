@@ -17,7 +17,12 @@ Please read the [motivation](https://copilot.microsoft.com/shares/pages/VKL8KZ8p
 
 This project is built with Haskell and Cabal. To install:
 
-1. Ensure you have [GHC](https://www.haskell.org/ghc/) and [Cabal](https://www.haskell.org/cabal/) installed.
+1. Ensure you have [GHC](https://www.haskell.org/ghc/) and [Cabal](https://www.haskell.org/cabal/) installed. Use [GHCup](https://www.haskell.org/ghcup/) for easy installation.
+   - For Windows, you can use the [Haskell Platform](https://www.haskell.org/platform/).
+   - For macOS, you can install GHC and Cabal via Homebrew:
+     ```
+     brew install ghc cabal-install
+     ```
 2. Clone the repository:
    ```
    git clone <repository-url>
