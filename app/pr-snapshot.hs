@@ -35,6 +35,10 @@ main = do
         , ""
         , "**Author:** " ++ author
         , ""
+        , "## Description"
+        , ""
+        , "(Enter your PR description here)"
+        , ""
         , "## Commits"
         , ""
         , commitList
