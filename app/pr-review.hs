@@ -114,8 +114,9 @@ openEditor filePath branch baseB = do
   let featureLines = lines featureContent
   let conflictLines = generateConflictContent baseLines featureLines
   let conflictContent = unlines conflictLines
-  withSystemTempFile "review.tmp" $ \tmpPath _ -> do
-    writeFile tmpPath conflictContent
+  withSystemTempFile "review.tmp" $ \tmpPath handle -> do
+    hPutStr handle conflictContent
+    hClose handle
     editor <- fromMaybe "vim" <$> lookupEnv "EDITOR"
     callProcess editor [tmpPath]
     editedContent <- readFile tmpPath
