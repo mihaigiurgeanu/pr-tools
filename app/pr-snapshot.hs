@@ -1,4 +1,4 @@
-import PRTools.Config (getBaseBranch, trimTrailing)
+import PRTools.Config (getBaseBranch, trimTrailing, sanitizeBranch)
 
 import Data.List (head, lines, null, unlines)
 import Options.Applicative
@@ -48,7 +48,7 @@ main = do
   root <- fmap trimTrailing (readProcess "git" ["rev-parse", "--show-toplevel"] "")
   let outputDir = root </> ".pr-drafts"
   createDirectoryIfMissing True outputDir
-  -- the branch is in the form 'feature/feature-x' or 'fix/feature-x' AI!
-  let outputPath = outputDir </> (branch ++ ".md")
+  let safeBranch = sanitizeBranch branch
+  let outputPath = outputDir </> (safeBranch ++ ".md")
   writeFile outputPath md
   putStrLn $ "Snapshot written to " ++ outputPath

@@ -41,5 +41,8 @@ getDynamicBase = do
 trimTrailing :: String -> String
 trimTrailing str = reverse $ dropWhile (== '\n') $ reverse str
 
+sanitizeBranch :: String -> String
+sanitizeBranch = map (\c -> if c == '/' then '-' else c)
+
 reviewDir :: FilePath
 reviewDir = ".pr-reviews"

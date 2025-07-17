@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import PRTools.Config (trimTrailing)
+import PRTools.Config (trimTrailing, sanitizeBranch)
 
 import Data.Aeson (encode, object, (.=))
 import qualified Data.ByteString as BS
@@ -27,7 +27,8 @@ main = do
       args <- getArgs
       branch <- if not (null args) then return (head args) else fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
       root <- fmap trimTrailing (readProcess "git" ["rev-parse", "--show-toplevel"] "")
-      let mdPath = root </> ".pr-drafts" </> (branch ++ ".md")
+      let safeBranch = sanitizeBranch branch
+      let mdPath = root </> ".pr-drafts" </> (safeBranch ++ ".md")
       exists <- doesFileExist mdPath
       if not exists
         then do
