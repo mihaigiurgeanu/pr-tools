@@ -1,1 +1,2 @@
 base-branch: master
+slack-webhook: <add your slack webhook url here>
