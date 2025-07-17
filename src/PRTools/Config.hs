@@ -38,5 +38,8 @@ getDynamicBase = do
       let branch = drop (length prefix) trimmedRef
       return $ if null branch then "main" else branch
 
+trimTrailing :: String -> String
+trimTrailing str = reverse $ dropWhile (== '\n') $ reverse str
+
 reviewDir :: FilePath
 reviewDir = ".pr-reviews"

@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+import PRTools.Config (trimTrailing)
+
 import Data.Aeson (encode, object, (.=))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
@@ -23,7 +25,7 @@ main = do
       exitWith (ExitFailure 1)
     Just webhook -> do
       args <- getArgs
-      branch <- if not (null args) then return (head args) else fmap init (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
+      branch <- if not (null args) then return (head args) else fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
       home <- getHomeDirectory
       let mdPath = home </> "pr-drafts" </> (branch ++ ".md")
       exists <- doesFileExist mdPath

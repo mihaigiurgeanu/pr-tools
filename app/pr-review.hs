@@ -13,7 +13,7 @@ import System.FilePath.Glob (glob)
 import System.IO (hPutStrLn, stderr)
 import System.IO.Temp (withSystemTempFile)
 import System.Process (callProcess, readProcess)
-import PRTools.Config (getBaseBranch, reviewDir)
+import PRTools.Config (getBaseBranch, reviewDir, trimTrailing)
 import PRTools.ReviewState
 
 data Global = Global { gBaseBranch :: Maybe String }
@@ -107,8 +107,8 @@ extractComments original edited =
 
 openEditor :: String -> String -> String -> IO [(Int, String)]
 openEditor filePath branch baseB = do
-  baseContent <- readProcess "git" ["show", baseB ++ ":" ++ filePath] ""
-  featureContent <- readProcess "git" ["show", branch ++ ":" ++ filePath] ""
+  baseContent <- readProcess "git" ["show", baseB ++ ":" ++ filePath, "--"] ""
+  featureContent <- readProcess "git" ["show", branch ++ ":" ++ filePath, "--"] ""
   let baseLines = lines baseContent
   let featureLines = lines featureContent
   let conflictLines = generateConflictContent baseLines featureLines
@@ -133,12 +133,12 @@ main = do
   baseB <- case gBaseBranch global of
     Just b -> return b
     Nothing -> getBaseBranch
-  branch <- fmap init (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
-  reviewer <- fmap init (readProcess "git" ["config", "user.name"] "")
+  branch <- fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
+  reviewer <- fmap trimTrailing (readProcess "git" ["config", "user.name"] "")
   reviewFile <- getReviewFile branch reviewer
   case cmd of
     Start -> do
-      filesOut <- readProcess "git" ["diff", "--name-only", baseB] ""
+      filesOut <- readProcess "git" ["diff", "--name-only", baseB, "--"] ""
       let files = lines filesOut
       let state = ReviewState "active" 0 files [] branch reviewer
       exists <- doesFileExist reviewFile
@@ -148,10 +148,10 @@ main = do
     Previous -> handleNav NavPrevious reviewFile branch baseB
     Open -> handleNav NavOpen reviewFile branch baseB
     Files -> do
-      out <- readProcess "git" ["diff", "--name-only", baseB] ""
+      out <- readProcess "git" ["diff", "--name-only", baseB, "--"] ""
       putStr out
     Changes -> do
-      out <- readProcess "git" ["diff", baseB] ""
+      out <- readProcess "git" ["diff", baseB, "--"] ""
       putStr out
     Comment file line text -> do
       mState <- loadReviewState reviewFile

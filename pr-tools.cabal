@@ -45,6 +45,7 @@ executable pr-send
                   , http-client-tls
                   , http-types
                   , process
+                  , pr-tools
   hs-source-dirs:   app
 
 executable pr-track

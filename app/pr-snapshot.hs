@@ -1,4 +1,4 @@
-import PRTools.Config (getBaseBranch)
+import PRTools.Config (getBaseBranch, trimTrailing)
 
 import Data.List (head, lines, null, unlines)
 import Options.Applicative
@@ -25,11 +25,11 @@ main = do
     Nothing -> getBaseBranch
   branch <- case optBranch opts of
     Just b -> return b
-    Nothing -> fmap init (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
-  author <- fmap init (readProcess "git" ["config", "user.name"] "")
-  commitsOut <- readProcess "git" ["log", "--format=%h %s", baseB ++ ".." ++ branch] ""
+    Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
+  author <- fmap trimTrailing (readProcess "git" ["config", "user.name"] "")
+  commitsOut <- readProcess "git" ["log", "--format=%h %s", baseB ++ ".." ++ branch, "--"] ""
   let commitList = unlines $ map ("- " ++) $ lines commitsOut
-  diffSummary <- readProcess "git" ["diff", "--stat", baseB, branch] ""
+  diffSummary <- readProcess "git" ["diff", "--stat", baseB, branch, "--"] ""
   let md = unlines
         [ "# PR Snapshot for " ++ branch
         , ""

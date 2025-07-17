@@ -5,6 +5,7 @@ import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
 import System.Process (readProcess)
+import PRTools.Config (trimTrailing)
 import PRTools.PRState
 
 main :: IO ()
@@ -21,7 +22,7 @@ main = do
         hPutStrLn stderr "Usage: pr-track approve <branch> [--by <name>]"
         exitFailure
       let branch = args !! 1
-      by <- fmap init (readProcess "git" ["config", "user.name"] "")
+      by <- fmap trimTrailing (readProcess "git" ["config", "user.name"] "")
       let by' = if length args > 3 && args !! 2 == "--by" then args !! 3 else by
       let pr = Map.findWithDefault (PRState "open" []) branch state
       let newApprovals = if by' `notElem` prApprovals pr then by' : prApprovals pr else prApprovals pr
