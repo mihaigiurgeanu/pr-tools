@@ -46,6 +46,7 @@ data Command =
   | End
   | List
   | Send
+  | Comments
 
 data NavAction = NavNext | NavPrevious | NavOpen
 
@@ -62,6 +63,7 @@ commandParser = subparser
  <> command "end" (info (pure End) (progDesc "End review"))
  <> command "list" (info (pure List) (progDesc "List reviews"))
  <> command "send" (info (pure Send) (progDesc "Send review to Slack"))
+ <> command "comments" (info (pure Comments) (progDesc "List all comments with context"))
   )
   where
     commentParser = Comment
@@ -261,6 +263,21 @@ main = do
               if statusCode (responseStatus response) == 200
                 then putStrLn "Review sent to Slack"
                 else hPutStrLn stderr "Error sending to Slack"
+    Comments -> do
+      mState <- loadReviewState reviewFile
+      case mState of
+        Nothing -> do
+          hPutStrLn stderr "No review"
+          exitFailure
+        Just state -> do
+          let comments = rsComments state
+          mapM_ (\c -> do
+            content <- readProcess "git" ["show", branch ++ ":" ++ cmFile c] ""
+            let fileLines = lines content
+            let start = max 0 (cmLine c - 4)
+            let context = take 7 (drop start fileLines)
+            putStrLn $ "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ (if cmResolved c then "resolved" else "unresolved") ++ "\nComment: " ++ cmText c ++ "\nContext:\n" ++ unlines (map ("  " ++) context) ++ "\n---"
+            ) comments
 
 handleNav :: NavAction -> FilePath -> String -> String -> IO ()
 handleNav action rf branch baseB = do

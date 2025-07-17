@@ -115,6 +115,7 @@ pr-review comment --file FILE --line LINE --text "COMMENT"
 pr-review resolve --id ID
 pr-review end
 pr-review list
+pr-review comments
 ```
 
 ### pr-view
