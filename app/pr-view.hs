@@ -2,7 +2,7 @@
 
 import Control.Exception (catch, IOException)
 import Control.Monad (foldM)
-import Data.List (drop, foldl', head, length, lines, null, take, takeWhile, words)
+import Data.List (drop, foldl', head, length, lines, null, take, takeWhile, words, zipWith)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Yaml (decodeFileEither)
@@ -124,7 +124,8 @@ main = do
         let fileLines = lines content
         let start = max 0 (line - 4)
         let context = take 7 (drop start fileLines)
-        putStrLn $ "File: " ++ file ++ "\nLine: " ++ show line ++ "\nID: " ++ cId c ++ "\nStatus: " ++ (if cResolved c then "resolved" else "unresolved") ++ "\nComment: " ++ cText c ++ "\nContext:\n" ++ unlines (map ("  " ++) context) ++ "\n---"
+        let numberedContext = zipWith (\i ln -> "  " ++ show (start + 1 + i) ++ ": " ++ ln) [0..] context
+        putStrLn $ "File: " ++ file ++ "\nLine: " ++ show line ++ "\nID: " ++ cId c ++ "\nStatus: " ++ (if cResolved c then "resolved" else "unresolved") ++ "\nComment: " ++ cText c ++ "\nContext:\n" ++ unlines numberedContext ++ "\n---"
         ) allComments
 
 renderFullFile :: String -> String -> Comments -> String -> IO [String]

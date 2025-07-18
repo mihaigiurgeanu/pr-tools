@@ -5,7 +5,7 @@ import Data.Aeson (encode, object, (.=))
 import qualified Data.ByteString.Lazy as LBS
 import Data.Algorithm.Diff (PolyDiff(..), getGroupedDiff)
 import Data.Char (isSpace)
-import Data.List (filter, foldl', intercalate)
+import Data.List (filter, foldl', intercalate, zipWith)
 import Data.Maybe (fromMaybe)
 import Data.UUID (toString)
 import Data.UUID.V4 (nextRandom)
@@ -275,7 +275,8 @@ main = do
               let fileLines = lines content
               let start = max 0 (cmLine c - 4)
               let context = take 7 (drop start fileLines)
-              putStrLn $ "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ (if cmResolved c then "resolved" else "unresolved") ++ "\nComment: " ++ cmText c ++ "\nContext:\n" ++ unlines (map ("  " ++) context) ++ "\n---"
+              let numberedContext = zipWith (\i ln -> "  " ++ show (start + 1 + i) ++ ": " ++ ln) [0..] context
+              putStrLn $ "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ (if cmResolved c then "resolved" else "unresolved") ++ "\nComment: " ++ cmText c ++ "\nContext:\n" ++ unlines numberedContext ++ "\n---"
               ) comments
             else
             mapM_ (\c -> putStrLn $ cmFile c ++ ":" ++ show (cmLine c) ++ " [" ++ cmId c ++ "] - " ++ map (\ch -> if ch == '\n' then ' ' else ch) (cmText c) ++ " [" ++ (if cmResolved c then "resolved" else "unresolved") ++ "]") comments
