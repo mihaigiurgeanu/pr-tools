@@ -76,33 +76,60 @@ appParser = App <$> globalParser <*> commandParser
 
 parsePastedMessage :: String -> IO [Cmt]
 parsePastedMessage content = do
-  let sections = splitOn "---" content
+  let sections = filter (not . all isSpace . unlines . lines) $ splitOn "---" content
+  putStrLn $ "Found " ++ show (length sections) ++ " sections to parse."
   parsedSections <- mapM parseSection sections
-  return $ catMaybes parsedSections
+  let validCmts = catMaybes parsedSections
+  if null validCmts
+    then putStrLn "No valid comments parsed from any sections."
+    else putStrLn $ "Successfully parsed " ++ show (length validCmts) ++ " comments."
+  return validCmts
 
 parseSection :: String -> IO (Maybe Cmt)
 parseSection s = do
   let allLs = lines s
   let ls = dropWhile (\ln -> take 5 (trim ln) /= "File:") allLs
-  if null ls then return Nothing else do
+  if null ls then do
+    putStrLn "Section skipped: no 'File:' found."
+    return Nothing
+    else do
     let f = head ls
-    if take 5 (trim f) /= "File:" then return Nothing else do
+    if take 5 (trim f) /= "File:" then do
+      putStrLn "Section skipped: invalid 'File:' line."
+      return Nothing
+      else do
       let file = parseLine "File:" f
-      let rest1 = tail ls
-      if null rest1 then return Nothing else do
-        let l_ = head rest1
-        if take 5 (trim l_) /= "Line:" then return Nothing else do
-          let lineStr = parseLine "Line:" l_
-          case reads lineStr of
-            [(line, "")] -> do
-              let rest2 = tail rest1
-              let commentLines = map trim rest2
-              let text = intercalate "\n" (filter (not . null) commentLines)
-              if null text then return Nothing else do
-                u <- nextRandom
-                let cid = take 8 $ filter (/= '-') $ toString u
-                return $ Just $ Cmt cid file line text False "not-solved" Nothing
-            _ -> return Nothing
+      if null file then do
+        putStrLn "Section skipped: empty file name."
+        return Nothing
+        else do
+        let rest1 = tail ls
+        if null rest1 then do
+          putStrLn $ "Section skipped for file '" ++ file ++ "': no lines after 'File:'."
+          return Nothing
+          else do
+          let l_ = head rest1
+          if take 5 (trim l_) /= "Line:" then do
+            putStrLn $ "Section skipped for file '" ++ file ++ "': invalid 'Line:' line."
+            return Nothing
+            else do
+            let lineStr = parseLine "Line:" l_
+            case reads lineStr of
+              [(line, "")] -> do
+                let rest2 = tail rest1
+                let commentLines = map trim rest2
+                let text = intercalate "\n" (filter (not . null) commentLines)
+                if null text then do
+                  putStrLn $ "Section skipped for file '" ++ file ++ "' line " ++ show line ++ ": no comment text."
+                  return Nothing
+                  else do
+                  putStrLn $ "Parsed comment for file: " ++ file ++ ", line: " ++ show line ++ ", text: " ++ take 50 text ++ if length text > 50 then "..." else ""
+                  u <- nextRandom
+                  let cid = take 8 $ filter (/= '-') $ toString u
+                  return $ Just $ Cmt cid file line text False "not-solved" Nothing
+              _ -> do
+                putStrLn $ "Section skipped for file '" ++ file ++ "': invalid line number '" ++ lineStr ++ "'."
+                return Nothing
   where
     parseLine :: String -> String -> String
     parseLine prefix l = trim (drop (length prefix) (dropWhile (/= ':') l))
