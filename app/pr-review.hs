@@ -239,8 +239,8 @@ main = do
         Just state -> do
           let comments = rsComments state
           let commentTexts = map (\c ->
-                "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nComment: " ++ cmText c ++ "\n---\n"
-            ) comments
+					"File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nComment: " ++ cmText c ++ "\n---\n"
+				    ) comments
           let message = "Review for " ++ branch ++ " by " ++ reviewer ++ ":\n" ++ concat commentTexts
           mbWebhook <- getSlackWebhook
           case mbWebhook of

@@ -274,8 +274,8 @@ main = do
         Just state -> do
           let comments = rsComments state
           let commentTexts = map (\c ->
-                "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nComment: " ++ cmText c ++ "\nStatus: " ++ cmStatus c ++ "\nAnswer: " ++ fromMaybe "" (cmAnswer c) ++ "\n---\n"
-            ) comments
+					"File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nComment: " ++ cmText c ++ "\nStatus: " ++ cmStatus c ++ "\nAnswer: " ++ fromMaybe "" (cmAnswer c) ++ "\n---\n"
+				    ) comments
           let message = "Fix summary for " ++ branch ++ " by " ++ fixer ++ ":\n" ++ concat commentTexts
           mbWebhook <- getSlackWebhook
           case mbWebhook of
