@@ -131,7 +131,7 @@ pr-view comments [BRANCH]  # List all comments with context
 Manage fix sessions for review comments:
 ```
 pr-fix start
-pr-fix comments
+pr-fix comments [--with-context]
 pr-fix files
 pr-fix open
 pr-fix next

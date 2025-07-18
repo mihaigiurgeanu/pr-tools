@@ -37,7 +37,7 @@ getFixFile branch fixer = do
 
 data FixCommand =
     FStart
-  | FComments
+  | FComments Bool
   | FFiles
   | FOpen
   | FNext
@@ -54,7 +54,7 @@ globalParser = pure Global
 commandParser :: Parser FixCommand
 commandParser = subparser
   ( command "start" (info (pure FStart) (progDesc "Start fix session"))
- <> command "comments" (info (pure FComments) (progDesc "Display comments"))
+ <> command "comments" (info commentsParser (progDesc "Display comments (compact by default)"))
  <> command "files" (info (pure FFiles) (progDesc "List files"))
  <> command "open" (info (pure FOpen) (progDesc "Open current file"))
  <> command "next" (info (pure FNext) (progDesc "Next file"))
@@ -64,6 +64,8 @@ commandParser = subparser
  <> command "resolve" (info resolveParser (progDesc "Resolve a comment"))
   )
   where
+    commentsParser = FComments
+      <$> switch (long "with-context" <> help "Display comments with context")
     resolveParser = FResolve
       <$> strOption (long "id" <> metavar "ID" <> help "Comment ID")
       <*> strOption (long "status" <> metavar "STATUS" <> help "Status (e.g., solved, not-solved, will-not-solve)")
@@ -252,10 +254,22 @@ main = do
         let state = ReviewState "fixing" 0 uniqueFiles parsedCmts branch fixer
         saveReviewState fixFile state
         putStrLn "Fix session started"
-    FComments -> do
+    FComments withCtx -> do
       mState <- loadReviewState fixFile
       case mState of
-        Just state | rsStatus state == "fixing" -> mapM_ (\c -> putStrLn $ cmFile c ++ ":" ++ show (cmLine c) ++ " - " ++ cmText c ++ " [" ++ cmStatus c ++ "] " ++ fromMaybe "" (cmAnswer c)) (rsComments state)
+        Just state | rsStatus state == "fixing" -> do
+          let comments = rsComments state
+          let branch = rsBranch state
+          if withCtx then
+            mapM_ (\c -> do
+              content <- readProcess "git" ["show", branch ++ ":" ++ cmFile c] ""
+              let fileLines = lines content
+              let start = max 0 (cmLine c - 4)
+              let context = take 7 (drop start fileLines)
+              putStrLn $ "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ cmStatus c ++ "\nComment: " ++ cmText c ++ "\nAnswer: " ++ fromMaybe "" (cmAnswer c) ++ "\nContext:\n" ++ unlines (map ("  " ++) context) ++ "\n---"
+              ) comments
+            else
+            mapM_ (\c -> putStrLn $ cmFile c ++ ":" ++ show (cmLine c) ++ " [" ++ cmId c ++ "] - " ++ map (\ch -> if ch == '\n' then ' ' else ch) (cmText c) ++ " [" ++ cmStatus c ++ "]" ++ maybe "" (\a -> " answer: " ++ map (\ch -> if ch == '\n' then ' ' else ch) a) (cmAnswer c)) comments
         _ -> hPutStrLn stderr "No active fix session"
     FFiles -> do
       mState <- loadReviewState fixFile
