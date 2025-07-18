@@ -158,14 +158,13 @@ handleOpen fixFile branch = do
             let fileLines = lines content
             let fileCmts = filter (\c -> cmFile c == file) (rsComments state)
             let sortedCmts = sortBy (comparing cmLine) fileCmts
-            let insertComments acc [] = acc
-                insertComments acc (c:cs) = 
-                  let before = take (cmLine c - 1) acc
-                      theLine = if cmLine c - 1 < length acc then [acc !! (cmLine c - 1)] else [""]
-                      marker = "-- REVIEW COMMENT [" ++ cmId c ++ "]: " ++ cmText c ++ " [status:" ++ cmStatus c ++ "] [answer:" ++ fromMaybe "" (cmAnswer c) ++ "]"
-                      after = drop (cmLine c - 1) acc
-                  in insertComments (before ++ theLine ++ [marker] ++ after) cs
-            let augmentedLines = insertComments fileLines sortedCmts
+            let makeMarker c = "-- REVIEW COMMENT [" ++ cmId c ++ "]: " ++ cmText c ++ " [status:" ++ cmStatus c ++ "] [answer:" ++ fromMaybe "" (cmAnswer c) ++ "]"
+            let insertWithOffset (acc, offset) c =
+                  let insert_pos = cmLine c + offset
+                      before = take insert_pos acc
+                      after = drop insert_pos acc
+                  in (before ++ [makeMarker c] ++ after, offset + 1)
+            let (augmentedLines, _) = foldl' insertWithOffset (fileLines, 0) sortedCmts
             let augmentedContent = unlines augmentedLines
             withSystemTempFile "fix.tmp" $ \tmpPath handle -> do
               hPutStr handle augmentedContent
