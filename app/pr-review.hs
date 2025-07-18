@@ -305,15 +305,17 @@ handleNav action rf branch baseB = do
           NavOpen -> do
             _ <- tryOpen state
             return ()
-          NavPrevious -> do
-            updated <- tryOpen state
-            if rsCurrentIndex updated > 0 then do
-              let newState = updated { rsCurrentIndex = rsCurrentIndex updated - 1 }
+          NavPrevious -> 
+            if rsCurrentIndex state > 0 then do
+              let newState = state { rsCurrentIndex = rsCurrentIndex state - 1 }
               saveReviewState rf newState
+              _ <- tryOpen newState
+              return ()
             else putStrLn "No previous files"
-          NavNext -> do
-            updated <- tryOpen state
-            if rsCurrentIndex updated < length (rsFiles updated) - 1 then do
-              let newState = updated { rsCurrentIndex = rsCurrentIndex updated + 1 }
+          NavNext ->
+            if rsCurrentIndex state < length (rsFiles state) - 1 then do
+              let newState = state { rsCurrentIndex = rsCurrentIndex state + 1 }
               saveReviewState rf newState
+              _ <- tryOpen newState
+              return ()
             else putStrLn "No more files"
