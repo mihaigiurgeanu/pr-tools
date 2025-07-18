@@ -16,11 +16,13 @@ library
   exposed-modules:  PRTools.Config
                   , PRTools.PRState
                   , PRTools.ReviewState
+                  , PRTools.CommentRenderer
   build-depends:    aeson
                   , containers
                   , directory
                   , process
                   , yaml
+                  , Diff
   hs-source-dirs:   src
 
 executable pr-snapshot

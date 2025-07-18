@@ -23,6 +23,7 @@ data Cmt = Cmt
   , cmResolved :: Bool
   , cmStatus :: String
   , cmAnswer :: Maybe String
+  , cmRevision :: String
   } deriving (Eq, Show)
 
 instance FromJSON ReviewState where
@@ -53,6 +54,7 @@ instance FromJSON Cmt where
     <*> v .: fromString "resolved"
     <*> (v .:? fromString "status" .!= "not-solved")
     <*> (v .:? fromString "answer")
+    <*> (v .:? fromString "revision" .!= "")
 
 instance ToJSON Cmt where
   toJSON cm = object
@@ -63,6 +65,7 @@ instance ToJSON Cmt where
     , fromString "resolved" .= cmResolved cm
     , fromString "status" .= cmStatus cm
     , fromString "answer" .= cmAnswer cm
+    , fromString "revision" .= cmRevision cm
     ]
 
 loadReviewState :: FilePath -> IO (Maybe ReviewState)

@@ -2,7 +2,7 @@
 
 import Control.Exception (catch, IOException)
 import Control.Monad (foldM)
-import Data.List (drop, foldl', head, length, lines, null, take, takeWhile, words, zipWith)
+import Data.List (drop, dropWhile, foldl', head, length, lines, null, take, takeWhile, words, zipWith)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Yaml (decodeFileEither)
@@ -136,9 +136,11 @@ renderFullFile branch baseB comms file = do
   let baseLines = lines baseContent
   let lineComments = fromMaybe Map.empty (Map.lookup file comms)
   let annotated = foldl' (\acc (i, line) ->
-				let cs = fromMaybe [] (Map.lookup (i+1) lineComments)  -- 1-based
-				    cLines = map (\c -> " # " ++ (if cResolved c then "RESOLVED" else "COMMENT") ++ " (" ++ cReviewer c ++ ") [id:" ++ cId c ++ "]: " ++ cText c) cs
-				    prefix = if i < length baseLines && baseLines !! i /= line then "+ " else "  "
-				in acc ++ [prefix ++ line] ++ cLines
-			      ) [] (zip [0..] fileLines)
+                                let cs = fromMaybe [] (Map.lookup (i+1) lineComments)  -- 1-based
+                                    cLines = map (\c -> " # " ++ (if cResolved c then "RESOLVED" else "COMMENT") ++ " (" ++ cReviewer c ++ ") [id:" ++ cId c ++ "]: " ++ trimTrailingNewlines (cText c)) cs
+                                    prefix = if i < length baseLines && baseLines !! i /= line then "+ " else "  "
+                                in acc ++ [prefix ++ line] ++ cLines
+                              ) [] (zip [0..] fileLines)
   return $ "" : ("## " ++ file) : "```" : annotated ++ ["```"]
+  where
+    trimTrailingNewlines s = reverse $ dropWhile (== '\n') $ reverse s
