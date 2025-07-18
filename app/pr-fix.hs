@@ -23,6 +23,9 @@ import System.Process (callProcess, readProcess)
 import PRTools.Config (getSlackWebhook, trimTrailing, sanitizeBranch)
 import PRTools.ReviewState
 
+trim :: String -> String
+trim = dropWhile isSpace . reverse . dropWhile isSpace . reverse
+
 fixDir :: FilePath
 fixDir = ".pr-fixes"
 
@@ -80,30 +83,29 @@ parsePastedMessage content = do
 parseSection :: String -> IO (Maybe Cmt)
 parseSection s = do
   let allLs = lines s
-  let ls = dropWhile (\ln -> take 5 ln /= "File:") allLs
+  let ls = dropWhile (\ln -> take 5 (trim ln) /= "File:") allLs
   if null ls then return Nothing else do
     let f = head ls
-    if take 5 f /= "File:" then return Nothing else do
+    if take 5 (trim f) /= "File:" then return Nothing else do
       let file = parseLine "File:" f
       let rest1 = tail ls
       if null rest1 then return Nothing else do
         let l_ = head rest1
-        if take 5 l_ /= "Line:" then return Nothing else do
-          let line = read (parseLine "Line:" l_) :: Int
-          let rest2 = tail rest1
-          let commentLines = takeWhile (\ln -> take 8 ln /= "Context:") rest2
-          if null commentLines then return Nothing else do
-            let text = intercalate "\n" commentLines
-            let rest3 = drop (length commentLines) rest2
-            if null rest3 then return Nothing else do
-              let ctxHeader = head rest3
-              if take 8 ctxHeader /= "Context:" then return Nothing else do
+        if take 5 (trim l_) /= "Line:" then return Nothing else do
+          let lineStr = parseLine "Line:" l_
+          case reads lineStr of
+            [(line, "")] -> do
+              let rest2 = tail rest1
+              let commentLines = map trim rest2
+              let text = intercalate "\n" (filter (not . null) commentLines)
+              if null text then return Nothing else do
                 u <- nextRandom
                 let cid = take 8 $ filter (/= '-') $ toString u
                 return $ Just $ Cmt cid file line text False "not-solved" Nothing
+            _ -> return Nothing
   where
     parseLine :: String -> String -> String
-    parseLine prefix l = drop (length prefix + 1) (dropWhile isSpace l)
+    parseLine prefix l = trim (drop (length prefix) (dropWhile (/= ':') l))
 
 handleOpen :: FilePath -> String -> IO ()
 handleOpen fixFile branch = do
@@ -271,12 +273,8 @@ main = do
         Nothing -> hPutStrLn stderr "No fix session"
         Just state -> do
           let comments = rsComments state
-          commentTexts <- mapM (\c -> do
-            content <- readFile (cmFile c)  -- assume updated
-            let fileLines = lines content
-            let start = max 0 (cmLine c - 4)
-            let context = take 7 (drop start fileLines)
-            return $ "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nComment: " ++ cmText c ++ "\nStatus: " ++ cmStatus c ++ "\nAnswer: " ++ fromMaybe "" (cmAnswer c) ++ "\nContext:\n" ++ unlines (map ("  " ++) context) ++ "\n---\n"
+          let commentTexts = map (\c ->
+                "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nComment: " ++ cmText c ++ "\nStatus: " ++ cmStatus c ++ "\nAnswer: " ++ fromMaybe "" (cmAnswer c) ++ "\n---\n"
             ) comments
           let message = "Fix summary for " ++ branch ++ " by " ++ fixer ++ ":\n" ++ concat commentTexts
           mbWebhook <- getSlackWebhook

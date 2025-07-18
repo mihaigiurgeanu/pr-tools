@@ -238,12 +238,8 @@ main = do
           exitFailure
         Just state -> do
           let comments = rsComments state
-          commentTexts <- mapM (\c -> do
-            content <- readProcess "git" ["show", branch ++ ":" ++ cmFile c] ""
-            let fileLines = lines content
-            let start = max 0 (cmLine c - 4)
-            let context = take 7 (drop start fileLines)
-            return $ "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nComment: " ++ cmText c ++ "\nContext:\n" ++ unlines (map ("  " ++) context) ++ "\n---\n"
+          let commentTexts = map (\c ->
+                "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nComment: " ++ cmText c ++ "\n---\n"
             ) comments
           let message = "Review for " ++ branch ++ " by " ++ reviewer ++ ":\n" ++ concat commentTexts
           mbWebhook <- getSlackWebhook
