@@ -132,7 +132,7 @@ parseSection s = do
                 return Nothing
   where
     parseLine :: String -> String -> String
-    parseLine prefix l = trim (drop (length prefix) (dropWhile (/= ':') l))
+    parseLine prefix l = trim (drop (length prefix)  l)
 
 handleOpen :: FilePath -> String -> IO ()
 handleOpen fixFile branch = do
