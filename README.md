@@ -1,6 +1,6 @@
 # PR Tools
 
-A set of command-line tools for managing pull requests in a Git repository. These tools help with creating PR snapshots, sending notifications to Slack, tracking approvals, merging PRs, reviewing changes, and viewing annotated diffs.
+A set of command-line tools for managing descentralized git pull requests and code review workflows. These tools help with creating PR snapshots, sending notifications to Slack, tracking approvals, merging PRs, reviewing changes, and viewing annotated diffs.
 
 Please read the [motivation](https://copilot.microsoft.com/shares/pages/VKL8KZ8pMhsYY68x7TZsr) for a more in-depth info about the purpose of these tools.
 
