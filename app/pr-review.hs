@@ -46,7 +46,7 @@ data Command =
   | End
   | List
   | Send
-  | Comments
+  | Comments Bool
 
 data NavAction = NavNext | NavPrevious | NavOpen
 
@@ -63,7 +63,7 @@ commandParser = subparser
  <> command "end" (info (pure End) (progDesc "End review"))
  <> command "list" (info (pure List) (progDesc "List reviews"))
  <> command "send" (info (pure Send) (progDesc "Send review to Slack"))
- <> command "comments" (info (pure Comments) (progDesc "List all comments with context"))
+ <> command "comments" (info commentsParser (progDesc "List all comments (compact by default)"))
   )
   where
     commentParser = Comment
@@ -72,6 +72,8 @@ commandParser = subparser
       <*> strOption (long "text" <> metavar "TEXT")
     resolveParser = Resolve
       <$> strOption (long "id" <> metavar "ID")
+    commentsParser = Comments
+      <$> switch (long "with-context" <> help "Display comments with context")
 
 getReviewFile :: String -> String -> IO FilePath
 getReviewFile branch reviewer = do
@@ -259,7 +261,7 @@ main = do
               if statusCode (responseStatus response) == 200
                 then putStrLn "Review sent to Slack"
                 else hPutStrLn stderr "Error sending to Slack"
-    Comments -> do
+    Comments withCtx -> do
       mState <- loadReviewState reviewFile
       case mState of
         Nothing -> do
@@ -267,13 +269,16 @@ main = do
           exitFailure
         Just state -> do
           let comments = rsComments state
-          mapM_ (\c -> do
-            content <- readProcess "git" ["show", branch ++ ":" ++ cmFile c] ""
-            let fileLines = lines content
-            let start = max 0 (cmLine c - 4)
-            let context = take 7 (drop start fileLines)
-            putStrLn $ "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ (if cmResolved c then "resolved" else "unresolved") ++ "\nComment: " ++ cmText c ++ "\nContext:\n" ++ unlines (map ("  " ++) context) ++ "\n---"
-            ) comments
+          if withCtx then
+            mapM_ (\c -> do
+              content <- readProcess "git" ["show", branch ++ ":" ++ cmFile c] ""
+              let fileLines = lines content
+              let start = max 0 (cmLine c - 4)
+              let context = take 7 (drop start fileLines)
+              putStrLn $ "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ (if cmResolved c then "resolved" else "unresolved") ++ "\nComment: " ++ cmText c ++ "\nContext:\n" ++ unlines (map ("  " ++) context) ++ "\n---"
+              ) comments
+            else
+            mapM_ (\c -> putStrLn $ cmFile c ++ ":" ++ show (cmLine c) ++ " [" ++ cmId c ++ "] - " ++ map (\ch -> if ch == '\n' then ' ' else ch) (cmText c) ++ " [" ++ (if cmResolved c then "resolved" else "unresolved") ++ "]") comments
 
 handleNav :: NavAction -> FilePath -> String -> String -> IO ()
 handleNav action rf branch baseB = do
