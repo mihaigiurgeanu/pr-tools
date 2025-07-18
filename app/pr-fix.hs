@@ -5,7 +5,7 @@ import Data.List (foldl', intercalate, isPrefixOf, nub, sortBy, zipWith)
 import Data.List.Split (splitOn)
 import qualified Data.ByteString.Lazy as LBS
 import Data.Char (isSpace)
-import Data.Maybe (fromMaybe, catMaybes)
+import Data.Maybe (fromMaybe, catMaybes, listToMaybe)
 import Data.Ord (comparing)
 import Data.UUID (toString)
 import Data.UUID.V4 (nextRandom)
@@ -22,6 +22,7 @@ import System.IO.Temp (withSystemTempFile)
 import System.Process (callProcess, readProcess)
 import PRTools.Config (getSlackWebhook, trimTrailing, sanitizeBranch)
 import PRTools.ReviewState
+import PRTools.CommentRenderer
 
 trim :: String -> String
 trim = dropWhile isSpace . reverse . dropWhile isSpace . reverse
@@ -105,36 +106,31 @@ parseSection s = do
         putStrLn "Section skipped: empty file name."
         return Nothing
         else do
-        let rest1 = tail ls
-        if null rest1 then do
-          putStrLn $ "Section skipped for file '" ++ file ++ "': no lines after 'File:'."
-          return Nothing
-          else do
-          let l_ = head rest1
-          if take 5 (trim l_) /= "Line:" then do
-            putStrLn $ "Section skipped for file '" ++ file ++ "': invalid 'Line:' line."
-            return Nothing
-            else do
+        let rest = tail ls
+        let idLine = findLine "ID:" rest
+        let statusLine = findLine "Status:" rest
+        let resolvedLine = findLine "Resolved:" rest
+        let revisionLine = findLine "Revision:" rest
+        let lineLine = findLine "Line:" rest
+        let commentLine = findLine "Comment:" rest
+        case (lineLine, commentLine) of
+          (Just l_, Just text) -> do
             let lineStr = parseLine "Line:" l_
             case reads lineStr of
               [(line, "")] -> do
-                let rest2 = tail rest1
-                let commentLines = map trim rest2
-                let text = intercalate "\n" (filter (not . null) commentLines)
-                if null text then do
-                  putStrLn $ "Section skipped for file '" ++ file ++ "' line " ++ show line ++ ": no comment text."
-                  return Nothing
-                  else do
-                  putStrLn $ "Parsed comment for file: " ++ file ++ ", line: " ++ show line ++ ", text: " ++ take 50 text ++ if length text > 50 then "..." else ""
-                  u <- nextRandom
-                  let cid = take 8 $ filter (/= '-') $ toString u
-                  return $ Just $ Cmt cid file line text False "not-solved" Nothing
-              _ -> do
-                putStrLn $ "Section skipped for file '" ++ file ++ "': invalid line number '" ++ lineStr ++ "'."
-                return Nothing
+                let cid = fromMaybe "" (parseLine "ID:" <$> idLine)
+                let status = fromMaybe "not-solved" (parseLine "Status:" <$> statusLine)
+                let resolved = maybe False (== "True") (parseLine "Resolved:" <$> resolvedLine)
+                let revision = fromMaybe "" (parseLine "Revision:" <$> revisionLine)
+                u <- if null cid then nextRandom else return undefined  -- Use existing ID if present
+                let finalId = if null cid then take 8 $ filter (/= '-') $ toString u else cid
+                return $ Just $ Cmt finalId file line text resolved status Nothing revision
+              _ -> return Nothing
+          _ -> return Nothing
   where
     parseLine :: String -> String -> String
-    parseLine prefix l = trim (drop (length prefix)  l)
+    parseLine prefix l = trim (drop (length prefix) l)
+    findLine prefix ls' = listToMaybe [ln | ln <- ls', prefix `isPrefixOf` trim ln]
 
 handleOpen :: FilePath -> String -> IO ()
 handleOpen fixFile branch = do
@@ -154,18 +150,8 @@ handleOpen fixFile branch = do
           exitFailure
           else do
             let file = files !! idx
-            content <- readFile file  -- assume on branch
-            let fileLines = lines content
             let fileCmts = filter (\c -> cmFile c == file) (rsComments state)
-            let sortedCmts = sortBy (comparing cmLine) fileCmts
-            let makeMarker c = "-- REVIEW COMMENT [" ++ cmId c ++ "]: " ++ cmText c ++ " [status:" ++ cmStatus c ++ "] [answer:" ++ fromMaybe "" (cmAnswer c) ++ "]"
-            let insertWithOffset (acc, offset) c =
-                  let insert_pos = cmLine c + offset
-                      before = take insert_pos acc
-                      after = drop insert_pos acc
-                  in (before ++ [makeMarker c] ++ after, offset + 1)
-            let (augmentedLines, _) = foldl' insertWithOffset (fileLines, 0) sortedCmts
-            let augmentedContent = unlines augmentedLines
+            augmentedContent <- renderForFix branch file fileCmts
             withSystemTempFile "fix.tmp" $ \tmpPath handle -> do
               hPutStr handle augmentedContent
               hClose handle
@@ -198,7 +184,9 @@ handleOpen fixFile branch = do
                     else (cls ++ [el], ucs)
                     ) ([], rsComments state) editedLines
               writeFile file (unlines cleanLines)
-              let newState = state { rsComments = updatedCmts }
+              currentRev <- trimTrailing <$> readProcess "git" ["rev-parse", "HEAD"] ""
+              let updatedWithRev = map (\c -> c { cmRevision = currentRev }) updatedCmts
+              let newState = state { rsComments = updatedWithRev }
               saveReviewState fixFile newState
   where
     findSub :: String -> String -> Maybe Int
@@ -249,8 +237,10 @@ main = do
         callProcess editor [tmpPath]
         pasted <- readFile tmpPath
         parsedCmts <- parsePastedMessage pasted
-        let uniqueFiles = nub (map cmFile parsedCmts)
-        let state = ReviewState "fixing" 0 uniqueFiles parsedCmts branch fixer
+        currentRev <- trimTrailing <$> readProcess "git" ["rev-parse", "HEAD"] ""
+        let updatedCmts = map (\c -> if null (cmRevision c) then c { cmRevision = currentRev } else c) parsedCmts
+        let uniqueFiles = nub (map cmFile updatedCmts)
+        let state = ReviewState "fixing" 0 uniqueFiles updatedCmts branch fixer
         saveReviewState fixFile state
         putStrLn "Fix session started"
     FComments withCtx -> do
@@ -315,8 +305,8 @@ main = do
         Just state -> do
           let comments = rsComments state
           let commentTexts = map (\c ->
-					"File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nComment: " ++ cmText c ++ "\nStatus: " ++ cmStatus c ++ "\nAnswer: " ++ fromMaybe "" (cmAnswer c) ++ "\n---\n"
-				    ) comments
+                                        "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ cmStatus c ++ "\nResolved: " ++ show (cmResolved c) ++ "\nRevision: " ++ cmRevision c ++ "\nComment: " ++ cmText c ++ "\nAnswer: " ++ fromMaybe "" (cmAnswer c) ++ "\n---\n"
+                                    ) comments
           let message = "Fix summary for " ++ branch ++ " by " ++ fixer ++ ":\n" ++ concat commentTexts
           mbWebhook <- getSlackWebhook
           case mbWebhook of

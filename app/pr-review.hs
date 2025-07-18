@@ -23,6 +23,7 @@ import System.IO.Temp (withSystemTempFile)
 import System.Process (callProcess, readProcess)
 import PRTools.Config (getBaseBranch, getSlackWebhook, reviewDir, trimTrailing, sanitizeBranch)
 import PRTools.ReviewState
+import PRTools.CommentRenderer
 
 data Global = Global { gBaseBranch :: Maybe String }
 
@@ -81,25 +82,35 @@ getReviewFile branch reviewer = do
   let safeBranch = sanitizeBranch branch
   return $ reviewDir </> safeBranch ++ "-" ++ reviewer ++ ".yaml"
 
-generateConflictContent :: [String] -> [String] -> [String]
-generateConflictContent baseLines featureLines =
-  let groups = getGroupedDiff baseLines featureLines
-  in recBuild [] groups
-  where
-    recBuild acc [] = acc
-    recBuild acc (g:gs) = case g of
-      Both ls _ -> recBuild (acc ++ ls) gs
-      First ls -> case gs of
-        (Second ms : rest) -> recBuild (acc ++ ["<<<<<<< BASE"] ++ ls ++ ["======="] ++ ms ++ [">>>>>>> FEATURE"]) rest
-        _ -> recBuild (acc ++ ["<<<<<<< BASE"] ++ ls ++ ["======="] ++ [">>>>>>> FEATURE"]) gs
-      Second ms -> recBuild (acc ++ ["<<<<<<< BASE"] ++ ["======="] ++ ms ++ [">>>>>>> FEATURE"]) gs
+openEditor :: String -> String -> String -> [Cmt] -> IO [Cmt]
+openEditor filePath branch baseB existingCmts = do
+  conflictContent <- renderForReview baseB branch filePath existingCmts
+  withSystemTempFile "review.tmp" $ \tmpPath handle -> do
+    hPutStr handle conflictContent
+    hClose handle
+    editor <- fromMaybe "vim" <$> lookupEnv "EDITOR"
+    callProcess editor [tmpPath]
+    editedContent <- readFile tmpPath
+    let editedLines = lines editedContent
+    let editedFeature = extractEditedFeature editedLines  -- Reuse existing extraction
+    featureContent <- readProcess "git" ["show", branch ++ ":" ++ filePath] ""
+    let featureLines = lines featureContent
+    let newPairs = extractComments featureLines editedFeature  -- Reuse
+    currentRev <- trimTrailing <$> readProcess "git" ["rev-parse", "HEAD"] ""
+    mapM (\(l, t) -> do
+      u <- nextRandom
+      let cid = take 8 $ filter (/= '-') $ toString u
+      return $ Cmt cid filePath l t False "not-solved" Nothing currentRev
+      ) newPairs
 
+-- Reused helpers
 extractEditedFeature :: [String] -> [String]
 extractEditedFeature editedLines =
   let (feat, _, _) = foldl' (\(f, inb, inf) line ->
                                  if line == "<<<<<<< BASE" then (f, True, False)
                                  else if line == "=======" then (f, False, True)
                                  else if line == ">>>>>>> FEATURE" then (f, False, False)
+                                 else if take 12 line == "-- COMMENT [" then (f, inb, inf)  -- skip existing comments
                                  else if inf || (not inb && not inf) then (f ++ [line], inb, inf)
                                  else (f, inb, inf)
                             ) ([], False, False) editedLines
@@ -111,34 +122,14 @@ extractComments original edited =
       (cmts, al, current) = foldl' (\(cs, al, cur) d ->
         case d of
           Both ls _ ->
-            let newCs = if null cur then cs else cs ++ [(if al - 1 == 0 then 1 else al - 1, unlines cur)]
+            let newCs = if null cur then cs else cs ++ [(if al - 1 == 0 then 1 else al - 1, intercalate "\n" cur)]
             in (newCs, al + length ls, [])
           First ls ->
             (cs, al + length ls, cur)
           Second ls -> (cs, al, cur ++ ls)
         ) ([], 1, []) diffs
-      finalCmts = if null current then cmts else cmts ++ [(if al == 0 then 1 else al, unlines current)]
+      finalCmts = if null current then cmts else cmts ++ [(if al == 0 then 1 else al, intercalate "\n" current)]
   in filter (\(_, t) -> not (all isSpace t)) finalCmts  -- filter non-empty
-
-openEditor :: String -> String -> String -> IO [(Int, String)]
-openEditor filePath branch baseB = do
-  baseContent <- catch (readProcess "git" ["show", baseB ++ ":" ++ filePath, "--"] "")
-                       (\e -> do hPutStrLn stderr $ "Warning: " ++ show (e :: IOException); return "")
-  featureContent <- catch (readProcess "git" ["show", branch ++ ":" ++ filePath, "--"] "")
-                          (\e -> do hPutStrLn stderr $ "Warning: " ++ show (e :: IOException); return "")
-  let baseLines = lines baseContent
-  let featureLines = lines featureContent
-  let conflictLines = generateConflictContent baseLines featureLines
-  let conflictContent = unlines conflictLines
-  withSystemTempFile "review.tmp" $ \tmpPath handle -> do
-    hPutStr handle conflictContent
-    hClose handle
-    editor <- fromMaybe "vim" <$> lookupEnv "EDITOR"
-    callProcess editor [tmpPath]
-    editedContent <- readFile tmpPath
-    let editedLines = lines editedContent
-    let editedFeature = extractEditedFeature editedLines
-    return $ extractComments featureLines editedFeature
 
 data App = App { appGlobal :: Global, appCommand :: Command }
 
@@ -198,7 +189,8 @@ main = do
           else do
             u <- nextRandom
             let cmtId = take 8 $ filter (/= '-') $ toString u
-            let newComment = Cmt cmtId file line text False "not-solved" Nothing
+            currentRev <- trimTrailing <$> readProcess "git" ["rev-parse", "HEAD"] ""
+            let newComment = Cmt cmtId file line text False "not-solved" Nothing currentRev
             let newState = state { rsComments = rsComments state ++ [newComment] }
             saveReviewState reviewFile newState
             putStrLn $ "Added comment " ++ cmtId
@@ -243,7 +235,7 @@ main = do
         Just state -> do
           let comments = rsComments state
           let commentTexts = map (\c ->
-					"File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nComment: " ++ cmText c ++ "\n---\n"
+					"File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ cmStatus c ++ "\nResolved: " ++ show (cmResolved c) ++ "\nRevision: " ++ cmRevision c ++ "\nComment: " ++ cmText c ++ "\n---\n"
 				    ) comments
           let message = "Review for " ++ branch ++ " by " ++ reviewer ++ ":\n" ++ concat commentTexts
           mbWebhook <- getSlackWebhook
@@ -296,14 +288,9 @@ handleNav action rf branch baseB = do
       else do
         let doOpen st = do
               let filePath = rsFiles st !! rsCurrentIndex st
-              newCmts <- openEditor filePath branch baseB
-              let filteredCmts = filter (\(_, t) -> not (all isSpace t)) newCmts
-              updatedCmts <- mapM (\(l, t) -> do
-                u <- nextRandom
-                let cid = take 8 $ filter (/= '-') $ toString u
-                return $ Cmt cid filePath l t False "not-solved" Nothing
-                ) filteredCmts
-              let finalState = st { rsComments = rsComments st ++ updatedCmts }
+              let fileCmts = filter (\c -> cmFile c == filePath) (rsComments st)
+              newCmts <- openEditor filePath branch baseB fileCmts
+              let finalState = st { rsComments = rsComments st ++ newCmts }
               saveReviewState rf finalState
               return finalState
         let tryOpen st = catch (doOpen st) (\e -> do
