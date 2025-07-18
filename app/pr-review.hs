@@ -159,7 +159,9 @@ main = do
       mState <- loadReviewState reviewFile
       case mState of
         Just existing -> do
-          let resumed = existing { rsStatus = "active" }  -- Optionally update files or index if needed
+          filesOut <- readProcess "git" ["diff", "--name-only", baseB, "--"] ""
+          let files = lines filesOut
+          let resumed = existing { rsStatus = "active", rsFiles = files, rsCurrentIndex = 0 }
           saveReviewState reviewFile resumed
           putStrLn "Resuming existing review"
         Nothing -> do
