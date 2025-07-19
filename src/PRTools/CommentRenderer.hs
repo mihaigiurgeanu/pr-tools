@@ -14,6 +14,7 @@ import Data.Maybe (fromMaybe, catMaybes)
 import Data.Ord (comparing)
 import Data.List (dropWhile, span)
 import PRTools.Config (trimTrailing)
+import Control.Arrow (first)
 
 -- Remap a line number from old revision to current
 remapLine :: String -> String -> String -> Int -> IO Int
@@ -60,25 +61,26 @@ renderForReview baseB branch file cmts = do
   let augmented = insertComments conflictLines sortedCmts
   return $ unlines augmented
   where
+    annotateFeatureLines :: Int -> [String] -> [(Maybe Int, String)]
+    annotateFeatureLines n ls = let feature_lines = zip [n ..] ls
+                                in map (first Just) feature_lines
+
     recBuild :: Int -> [PolyDiff [String] [String]] -> [(Maybe Int, String)]
     recBuild _ [] = []
     recBuild n (g:gs) = case g of
       Both ls _ ->
-        let feature_lines = zip [n ..] ls
-            annotated = map (\(l, line) -> (Just l, line)) feature_lines
+        let annotated = annotateFeatureLines n ls
         in annotated ++ recBuild (n + length ls) gs
-      First ls -> case gs of
-        (Second ms : rest) ->
-          let base_lines = map (Nothing ,) ls
-              feature_lines = zip [n ..] ms
-              annotated = map (\(l, line) -> (Just l, line)) feature_lines
-          in (Nothing, "<<<<<<< BASE") : base_lines ++ (Nothing, "=======") : annotated ++ (Nothing, ">>>>>>> FEATURE") : recBuild (n + length ms) rest
-        _ ->
-          let base_lines = map (Nothing ,) ls
-          in (Nothing, "<<<<<<< BASE") : base_lines ++ (Nothing, "=======") : (Nothing, ">>>>>>> FEATURE") : recBuild n gs
+      First ls ->
+        let base_lines = map (Nothing ,) ls
+        in case gs of
+          (Second ms : rest) ->
+            let annotated = annotateFeatureLines n ms
+            in (Nothing, "<<<<<<< BASE") : base_lines ++ (Nothing, "=======") : annotated ++ (Nothing, ">>>>>>> FEATURE") : recBuild (n + length ms) rest
+          _ ->
+            (Nothing, "<<<<<<< BASE") : base_lines ++ (Nothing, "=======") : (Nothing, ">>>>>>> FEATURE") : recBuild n gs
       Second ms ->
-        let feature_lines = zip [n ..] ms
-            annotated = map (\(l, line) -> (Just l, line)) feature_lines
+        let annotated = annotateFeatureLines n ms
         in (Nothing, "<<<<<<< BASE") : (Nothing, "=======") : annotated ++ (Nothing, ">>>>>>> FEATURE") : recBuild (n + length ms) gs
 
     insertComments :: [(Maybe Int, String)] -> [Cmt] -> [String]
