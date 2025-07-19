@@ -251,20 +251,7 @@ main = do
     FComments withCtx -> do
       mState <- loadReviewState fixFile
       case mState of
-        Just state | rsStatus state == "fixing" -> do
-          let comments = rsComments state
-          let branch = rsBranch state
-          if withCtx then
-            mapM_ (\c -> do
-              content <- readProcess "git" ["show", branch ++ ":" ++ cmFile c] ""
-              let fileLines = lines content
-              let start = max 0 (cmLine c - 4)
-              let context = take 7 (drop start fileLines)
-              let numberedContext = zipWith (\i ln -> "  " ++ show (start + 1 + i) ++ ": " ++ ln) [0..] context
-              putStrLn $ "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ cmStatus c ++ "\nComment: " ++ cmText c ++ "\nAnswer: " ++ fromMaybe "" (cmAnswer c) ++ "\nContext:\n" ++ unlines numberedContext ++ "\n---"
-              ) comments
-            else
-            mapM_ (\c -> putStrLn $ cmFile c ++ ":" ++ show (cmLine c) ++ " [" ++ cmId c ++ "] - " ++ map (\ch -> if ch == '\n' then ' ' else ch) (cmText c) ++ " [" ++ cmStatus c ++ "]" ++ maybe "" (\a -> " answer: " ++ map (\ch -> if ch == '\n' then ' ' else ch) a) (cmAnswer c)) comments
+        Just state | rsStatus state == "fixing" -> displayComments (rsBranch state) (rsComments state) withCtx
         _ -> hPutStrLn stderr "No active fix session"
     FFiles -> do
       mState <- loadReviewState fixFile

@@ -201,7 +201,7 @@ main = do
           hPutStrLn stderr "No review"
           exitFailure
         Just state -> do
-          let updatedComments = map (\c -> if cmId c == rid then c { cmResolved = True } else c) (rsComments state)
+          let updatedComments = map (\c -> if cmId c == rid then c { cmResolved = True, cmStatus = "solved" } else c) (rsComments state)
           if updatedComments == rsComments state
             then putStrLn "Comment not found"
             else do
@@ -261,19 +261,7 @@ main = do
         Nothing -> do
           hPutStrLn stderr "No review"
           exitFailure
-        Just state -> do
-          let comments = rsComments state
-          if withCtx then
-            mapM_ (\c -> do
-              content <- readProcess "git" ["show", branch ++ ":" ++ cmFile c] ""
-              let fileLines = lines content
-              let start = max 0 (cmLine c - 4)
-              let context = take 7 (drop start fileLines)
-              let numberedContext = zipWith (\i ln -> "  " ++ show (start + 1 + i) ++ ": " ++ ln) [0..] context
-              putStrLn $ "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ (if cmResolved c then "resolved" else "unresolved") ++ "\nComment: " ++ cmText c ++ "\nContext:\n" ++ unlines numberedContext ++ "\n---"
-              ) comments
-            else
-            mapM_ (\c -> putStrLn $ cmFile c ++ ":" ++ show (cmLine c) ++ " [" ++ cmId c ++ "] - " ++ map (\ch -> if ch == '\n' then ' ' else ch) (cmText c) ++ " [" ++ (if cmResolved c then "resolved" else "unresolved") ++ "]") comments
+        Just state -> displayComments branch (rsComments state) withCtx
 
 handleNav :: NavAction -> FilePath -> String -> String -> IO ()
 handleNav action rf branch baseB = do

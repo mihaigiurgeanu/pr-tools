@@ -124,3 +124,17 @@ renderForFix branch file cmts = do
           after = drop insert_pos acc
           marker = "-- REVIEW COMMENT [" ++ cmId c ++ "]: " ++ cmText c ++ " [status:" ++ cmStatus c ++ "] [answer:" ++ fromMaybe "" (cmAnswer c) ++ "]"
       in (before ++ [marker] ++ after, offset + 1)
+
+displayComments :: String -> [Cmt] -> Bool -> IO ()
+displayComments branch cmts withCtx = do
+  if withCtx then
+    mapM_ (\c -> do
+      content <- readProcess "git" ["show", branch ++ ":" ++ cmFile c] ""
+      let fileLines = lines content
+      let start = max 0 (cmLine c - 4)
+      let context = take 7 (drop start fileLines)
+      let numberedContext = zipWith (\i ln -> "  " ++ show (start + 1 + i) ++ ": " ++ ln) [0..] context
+      putStrLn $ "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ cmStatus c ++ "\nComment: " ++ cmText c ++ "\nAnswer: " ++ fromMaybe "" (cmAnswer c) ++ "\nContext:\n" ++ unlines numberedContext ++ "\n---"
+      ) cmts
+    else
+    mapM_ (\c -> putStrLn $ cmFile c ++ ":" ++ show (cmLine c) ++ " [" ++ cmId c ++ "] - " ++ map (\ch -> if ch == '\n' then ' ' else ch) (cmText c) ++ " [" ++ cmStatus c ++ "]" ++ maybe "" (\a -> " answer: " ++ map (\ch -> if ch == '\n' then ' ' else ch) a) (cmAnswer c)) cmts
