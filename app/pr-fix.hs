@@ -149,12 +149,12 @@ handleOpen fixFile branch = do
           hPutStrLn stderr "Invalid file index"
           exitFailure
           else do
-            status <- readProcess "git" ["status", "--porcelain"] ""
+            let file = files !! idx
+            status <- readProcess "git" ["status", "--porcelain", file] ""
             if not (null (trim status)) then do
-              hPutStrLn stderr "Please commit your changes before using pr-fix open/next/previous to avoid overwriting uncommitted work."
+              hPutStrLn stderr $ "Please commit your changes to " ++ file ++ " before using pr-fix open/next/previous to avoid overwriting uncommitted work in that file."
               exitFailure
             else do
-              let file = files !! idx
               let fileCmts = filter (\c -> cmFile c == file) (rsComments state)
               augmentedContent <- renderForFix branch file fileCmts
               withSystemTempFile "fix.tmp" $ \tmpPath handle -> do
