@@ -91,7 +91,7 @@ renderForReview baseB branch file cmts = do
               Just l ->
                 let (inserted, remaining) = span (\c -> cmLine c == l) rem_cmts
                     markers = map (\c -> "-- COMMENT [" ++ cmId c ++ "]: " ++ trimTrailingNewlines (cmText c)) inserted
-                    to_add = markers ++ [line]
+                    to_add = line : markers
                     new_rev = foldl' (flip (:)) rev_acc (reverse to_add)
                 in (new_rev, remaining)
           (final_rev, final_rem) = foldl' go ([], scmts) clines
@@ -118,7 +118,8 @@ renderForFix branch file cmts = do
   where
     insertComment :: ([String], Int) -> Cmt -> ([String], Int)
     insertComment (acc, offset) c =
-      let insert_pos = cmLine c + offset
+      let insert_pos' = cmLine c + offset - 1
+          insert_pos = max 0 insert_pos'
           before = take insert_pos acc
           after = drop insert_pos acc
           marker = "-- REVIEW COMMENT [" ++ cmId c ++ "]: " ++ cmText c ++ " [status:" ++ cmStatus c ++ "] [answer:" ++ fromMaybe "" (cmAnswer c) ++ "]"
