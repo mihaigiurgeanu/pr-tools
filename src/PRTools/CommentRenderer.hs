@@ -113,11 +113,13 @@ renderForFix branch file cmts = do
     return c { cmLine = newLine }
     ) cmts
   let sortedCmts = sortBy (comparing cmLine) adjustedCmts
-  let (augmentedLines, _) = foldl' (\(acc, offset) c ->
-                                      let insert_pos = cmLine c + offset
-                                          before = take insert_pos acc
-                                          after = drop insert_pos acc
-                                          marker = "-- REVIEW COMMENT [" ++ cmId c ++ "]: " ++ cmText c ++ " [status:" ++ cmStatus c ++ "] [answer:" ++ fromMaybe "" (cmAnswer c) ++ "]"
-                                      in (before ++ [marker] ++ after, offset + 1)
-                                   ) (fileLines, 0) sortedCmts
+  let (augmentedLines, _) = foldl' insertComment (fileLines, 0) sortedCmts
   return $ unlines augmentedLines
+  where
+    insertComment :: ([String], Int) -> Cmt -> ([String], Int)
+    insertComment (acc, offset) c =
+      let insert_pos = cmLine c + offset
+          before = take insert_pos acc
+          after = drop insert_pos acc
+          marker = "-- REVIEW COMMENT [" ++ cmId c ++ "]: " ++ cmText c ++ " [status:" ++ cmStatus c ++ "] [answer:" ++ fromMaybe "" (cmAnswer c) ++ "]"
+      in (before ++ [marker] ++ after, offset + 1)
