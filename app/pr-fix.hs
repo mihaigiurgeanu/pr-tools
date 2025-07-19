@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 import Data.Aeson (encode, object, (.=))
-import Data.List (foldl', intercalate, isPrefixOf, nub, sortBy, zipWith)
+import Data.List (findIndex, foldl', intercalate, isPrefixOf, nub, sortBy, zipWith)
 import Data.List.Split (splitOn)
 import qualified Data.ByteString.Lazy as LBS
 import Data.Char (isSpace)
@@ -112,9 +112,9 @@ parseSection s = do
         let resolvedLine = findLine "Resolved:" rest
         let revisionLine = findLine "Revision:" rest
         let lineLine = findLine "Line:" rest
-        let commentLine = findLine "Comment:" rest
-        case (lineLine, commentLine) of
-          (Just l_, Just text) -> do
+        let mbCommentIdx = findIndex (\ln -> "Comment:" `isPrefixOf` trim ln) rest
+        case (lineLine, mbCommentIdx) of
+          (Just l_, Just idx) -> do
             let lineStr = parseLine "Line:" l_
             case reads lineStr of
               [(line, "")] -> do
@@ -122,9 +122,16 @@ parseSection s = do
                 let status = fromMaybe "not-solved" (parseLine "Status:" <$> statusLine)
                 let resolved = maybe False (== "True") (parseLine "Resolved:" <$> resolvedLine)
                 let revision = fromMaybe "" (parseLine "Revision:" <$> revisionLine)
+                let commentLines = drop idx rest
+                let firstLineRaw = head commentLines
+                let prefixLen = length ("Comment: " :: String)
+                let firstPart = drop prefixLen firstLineRaw
+                let otherParts = tail commentLines
+                let parts = firstPart : otherParts
+                let commentText = if null parts then "" else unlines (init parts) ++ last parts
                 u <- if null cid then nextRandom else return undefined  -- Use existing ID if present
                 let finalId = if null cid then take 8 $ filter (/= '-') $ toString u else cid
-                return $ Just $ Cmt finalId file line text resolved status Nothing revision
+                return $ Just $ Cmt finalId file line commentText resolved status Nothing revision
               _ -> return Nothing
           _ -> return Nothing
   where
