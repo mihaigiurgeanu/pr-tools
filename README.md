@@ -38,6 +38,13 @@ This project is built with Haskell and Cabal. To install:
 
 This will install the binaries in `~/.cabal/bin` (or equivalent). Add this directory to your PATH if necessary.
 
+## How to upgrade from source
+
+Update the source tree and reinstall:
+
+    cd pr-tools
+    git checkout master && git pull && cabal install --overwrite-policy=always
+
 ## Configuration
 
 
