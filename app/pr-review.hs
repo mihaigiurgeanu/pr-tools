@@ -122,7 +122,7 @@ extractComments original edited =
       (cmts, al, current) = foldl' (\(cs, al, cur) d ->
         case d of
           Both ls _ ->
-            let newCs = if null cur then cs else cs ++ [(if al - 1 == 0 then 1 else al - 1, intercalate "\n" cur)]
+            let newCs = if null cur then cs else cs ++ [(if al == 0 then 1 else al, intercalate "\n" cur)]
             in (newCs, al + length ls, [])
           First ls ->
             (cs, al + length ls, cur)
