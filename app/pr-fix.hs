@@ -171,6 +171,10 @@ handleOpen fixFile branch = do
                 callProcess editor [tmpPath]
                 editedContent <- readFile tmpPath
                 let editedLines = lines editedContent
+                mLatest <- loadReviewState fixFile
+                let latest = case mLatest of
+                      Just l -> l
+                      Nothing -> state
                 let (cleanLines, updatedCmts) = foldl' (\(cls, ucs) el ->
                       if take 19 el == "-- REVIEW COMMENT [" then
                         let rest = drop 19 el
@@ -194,11 +198,11 @@ handleOpen fixFile branch = do
                             updatedC = map (\c -> if cmId c == cid then c { cmStatus = status, cmAnswer = answer, cmResolved = (status == "solved") } else c) ucs
                         in (cls, updatedC)
                       else (cls ++ [el], ucs)
-                      ) ([], rsComments state) editedLines
+                      ) ([], rsComments latest) editedLines
                 writeFile file (unlines cleanLines)
                 currentRev <- trimTrailing <$> readProcess "git" ["rev-parse", "HEAD"] ""
                 let updatedWithRev = map (\c -> c { cmRevision = currentRev }) updatedCmts
-                let newState = state { rsComments = updatedWithRev }
+                let newState = latest { rsComments = updatedWithRev }
                 saveReviewState fixFile newState
   where
     findSub :: String -> String -> Maybe Int

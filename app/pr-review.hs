@@ -278,7 +278,11 @@ handleNav action rf branch baseB = do
               let filePath = rsFiles st !! rsCurrentIndex st
               let fileCmts = filter (\c -> cmFile c == filePath) (rsComments st)
               newCmts <- openEditor filePath branch baseB fileCmts
-              let finalState = st { rsComments = rsComments st ++ newCmts }
+              mLatest <- loadReviewState rf
+              let latest = case mLatest of
+                    Just l -> l
+                    Nothing -> st
+              let finalState = latest { rsComments = rsComments latest ++ newCmts }
               saveReviewState rf finalState
               return finalState
         let tryOpen st = catch (doOpen st) (\e -> do
