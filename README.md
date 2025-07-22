@@ -8,7 +8,7 @@ Please read the [motivation](https://copilot.microsoft.com/shares/pages/VKL8KZ8p
 
 - **pr-snapshot**: Generate a Markdown snapshot of the PR including commits and diff summary.
 - **pr-send**: Send the PR snapshot to a Slack channel for review.
-- **pr-track**: Track PR approvals and status.
+- **pr-track**: Track PR approvals, status, and commit history.
 - **pr-merge**: Merge approved PRs with various strategies and update changelog.
 - **pr-review**: Interactive code review tool with comment management.
 - **pr-view**: View annotated diffs with review comments.
@@ -109,11 +109,14 @@ Subcommands:
 ```
 pr-track approve [BRANCH] --by NAME
 pr-track status [BRANCH]
+pr-track record [BRANCH]
+pr-track update [BRANCH]
 pr-track list
 ```
 
 - `approve [BRANCH] --by NAME`: Approve the PR by the given name. `BRANCH` defaults to current.
-- `status [BRANCH]`: Get the status and approvals for the PR. `BRANCH` defaults to current.
+- `status [BRANCH]`: Get the status, approvals, and merge status for the PR. Checks if commits are merged into the base branch. `BRANCH` defaults to current.
+- `record [BRANCH]`: Record or update the commit snapshot for the PR. Synonyms: update, u, r, rec. `BRANCH` defaults to current.
 - `list`: List all tracked PRs with status and approval counts.
 
 ### pr-merge

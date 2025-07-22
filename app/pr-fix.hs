@@ -23,6 +23,7 @@ import System.Process (callProcess, readProcess)
 import PRTools.Config (getSlackWebhook, trimTrailing, sanitizeBranch)
 import PRTools.ReviewState
 import PRTools.CommentRenderer
+import PRTools.PRState (recordPR)
 
 trim :: String -> String
 trim = dropWhile isSpace . reverse . dropWhile isSpace . reverse
@@ -259,6 +260,7 @@ main = do
         let state = ReviewState "fixing" 0 uniqueFiles updatedCmts branch fixer
         saveReviewState fixFile state
         putStrLn "Fix session started"
+        recordPR branch
     FComments withCtx -> do
       mState <- loadReviewState fixFile
       case mState of

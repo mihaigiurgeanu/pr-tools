@@ -1,4 +1,5 @@
 import PRTools.Config (getBaseBranch, trimTrailing, sanitizeBranch)
+import PRTools.PRState (recordPR)
 
 import Data.List (head, lines, null, unlines)
 import Options.Applicative
@@ -68,3 +69,4 @@ main = do
       let editor = maybe "vi" id editorM
       callProcess editor [outputPath]
   putStrLn $ "Snapshot written to " ++ outputPath
+  recordPR branch

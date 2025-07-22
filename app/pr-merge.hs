@@ -68,7 +68,7 @@ main = do
             _ -> do
               hPutStrLn stderr "Invalid strategy"
               exitFailure
-          let newState = Map.insert branch (PRState "merged" (prApprovals pr)) state
+          let newState = Map.insert branch (PRState "merged" (prApprovals pr) (prSnapshots pr)) state
           saveState newState
           currentTime <- getCurrentTime
           let dateStr = formatTime defaultTimeLocale "%Y-%m-%d" currentTime

@@ -23,6 +23,7 @@ library
                   , process
                   , yaml
                   , Diff
+                  , time
   hs-source-dirs:   src
 
 executable pr-snapshot
@@ -57,6 +58,7 @@ executable pr-track
                   , containers
                   , optparse-applicative
                   , process
+                  , time
   hs-source-dirs:   app
 
 executable pr-merge
