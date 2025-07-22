@@ -8,10 +8,11 @@ import Data.Yaml (FromJSON(..), decodeFileEither, encodeFile, parseJSON, withObj
 import System.Directory (doesFileExist)
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
-import Data.Time (formatTime, getCurrentTime)
-import Data.Time.Format (defaultTimeLocale)
-import System.Process (readProcess)
-import PRTools.Config (getBaseBranch, trimTrailing)
+import Data.Time (UTCTime, NominalDiffTime, diffUTCTime, formatTime, getCurrentTime)
+import Data.Time.Format (defaultTimeLocale, parseTimeM)
+import System.Process (readProcess, readProcessWithExitCode)
+import PRTools.Config (getBaseBranch, trimTrailing, getStaleDays)
+import System.Exit (ExitCode(..))
 
 data CommitInfo = CommitInfo { ciHash :: String, ciMessage :: String } deriving (Eq, Show)
 
@@ -73,7 +74,12 @@ loadState = do
 saveState :: Map.Map String PRState -> IO ()
 saveState = encodeFile statePath
 
-recordPR :: String -> IO ()
+isAncestor :: String -> String -> IO Bool
+isAncestor commit branch = do
+  (code, _, _) <- readProcessWithExitCode "git" ["merge-base", "--is-ancestor", commit, branch] ""
+  return (code == ExitSuccess)
+
+recordPR :: String -> IO String
 recordPR branch = do
   state <- loadState
   base <- getBaseBranch
@@ -86,6 +92,24 @@ recordPR branch = do
   let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
   let newSnapshot = PRSnapshot timeStr commits
   let existing = Map.findWithDefault (PRState "open" [] []) branch state
-  let updated = existing { prSnapshots = prSnapshots existing ++ [newSnapshot] }
+  let updatedSnapshots = prSnapshots existing ++ [newSnapshot]
+
+  -- Stale check
+  staleDays <- getStaleDays
+  let isStale = case prSnapshots existing of
+                  [] -> False
+                  snaps -> let lastSnap = last snaps
+                               lastTimeM = parseTimeM True defaultTimeLocale "%Y-%m-%d %H:%M:%S" (psTimestamp lastSnap)
+                           in case lastTimeM of
+                                Just lastTime -> diffUTCTime currentTime lastTime > fromIntegral (staleDays * 86400) && null commits
+                                Nothing -> False
+  let statusAfterStale = if isStale && prStatus existing /= "stale" && prStatus existing /= "merged" then "stale" else prStatus existing
+
+  -- Merged check
+  allMerged <- if null commits then return False else and <$> mapM (\ci -> isAncestor (ciHash ci) base) commits
+  let finalStatus = if allMerged && statusAfterStale /= "merged" then "merged" else statusAfterStale
+
+  let updated = existing { prSnapshots = updatedSnapshots, prStatus = finalStatus }
   let newState = Map.insert branch updated state
   saveState newState
+  return $ if finalStatus /= prStatus existing then "Status updated to " ++ finalStatus else ""

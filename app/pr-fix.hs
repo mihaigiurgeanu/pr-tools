@@ -260,7 +260,7 @@ main = do
         let state = ReviewState "fixing" 0 uniqueFiles updatedCmts branch fixer
         saveReviewState fixFile state
         putStrLn "Fix session started"
-        recordPR branch
+        recordPR branch >>= putStrLn
     FComments withCtx -> do
       mState <- loadReviewState fixFile
       case mState of

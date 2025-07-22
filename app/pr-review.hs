@@ -156,14 +156,14 @@ main = do
           let resumed = existing { rsStatus = "active", rsFiles = files, rsCurrentIndex = 0 }
           saveReviewState reviewFile resumed
           putStrLn "Resuming existing review"
-          recordPR branch
+          recordPR branch >>= putStrLn
         Nothing -> do
           filesOut <- readProcess "git" ["diff", "--name-only", baseB, "--"] ""
           let files = lines filesOut
           let newState = ReviewState "active" 0 files [] branch reviewer
           saveReviewState reviewFile newState
           putStrLn "New review started"
-          recordPR branch
+          recordPR branch >>= putStrLn
     Next -> handleNav NavNext reviewFile branch baseB
     Previous -> handleNav NavPrevious reviewFile branch baseB
     Open -> handleNav NavOpen reviewFile branch baseB

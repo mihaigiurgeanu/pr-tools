@@ -80,14 +80,9 @@ main = do
       branch <- case mbBranch of
         Just b -> return b
         Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
-      recordPR branch
-      putStrLn $ "Recorded snapshot for " ++ branch
+      msg <- recordPR branch
+      putStrLn $ "Recorded snapshot for " ++ branch ++ (if null msg then "" else ". " ++ msg)
     List -> do
       if Map.null state
         then putStrLn "No PRs tracked"
         else Map.foldrWithKey (\b pr acc -> putStrLn (b ++ ": " ++ prStatus pr ++ " (approvals: " ++ show (length $ prApprovals pr) ++ ")") >> acc) (return ()) state
-
-isAncestor :: String -> String -> IO Bool
-isAncestor commit branch = do
-  (code, _, _) <- readProcessWithExitCode "git" ["merge-base", "--is-ancestor", commit, branch] ""
-  return (code == ExitSuccess)

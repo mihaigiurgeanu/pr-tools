@@ -69,4 +69,4 @@ main = do
       let editor = maybe "vi" id editorM
       callProcess editor [outputPath]
   putStrLn $ "Snapshot written to " ++ outputPath
-  recordPR branch
+  recordPR branch >>= putStrLn

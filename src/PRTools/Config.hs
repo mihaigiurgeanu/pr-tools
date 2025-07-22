@@ -5,14 +5,15 @@ module PRTools.Config where
 
 import Control.Exception (catch, IOException)
 import Data.List (drop, init, length, null)
+import Data.Maybe (fromMaybe)
 import Data.Yaml (FromJSON(..), ParseException, decodeFileEither, parseJSON, withObject, (.:), (.:?))
 import System.Directory (doesFileExist)
 import System.Process (readProcess)
 
-data Config = Config { cfgBaseBranch :: String, cfgSlackWebhook :: Maybe String } deriving Show
+data Config = Config { cfgBaseBranch :: String, cfgSlackWebhook :: Maybe String, cfgStaleDays :: Maybe Int } deriving Show
 
 instance FromJSON Config where
-  parseJSON = withObject "Config" $ \v -> Config <$> v .: "base-branch" <*> v .:? "slack-webhook"
+  parseJSON = withObject "Config" $ \v -> Config <$> v .: "base-branch" <*> v .:? "slack-webhook" <*> v .:? "stale-days"
 
 getBaseBranch :: IO String
 getBaseBranch = do
@@ -37,6 +38,18 @@ getSlackWebhook = do
         Right config -> return $ cfgSlackWebhook config
         Left _ -> return Nothing
     else return Nothing
+
+getStaleDays :: IO Int
+getStaleDays = do
+  let configPath = ".pr-tools.yaml"
+  exists <- doesFileExist configPath
+  if exists
+    then do
+      res <- decodeFileEither configPath
+      case res of
+        Right config -> return $ fromMaybe 14 (cfgStaleDays config)
+        Left _ -> return 14
+    else return 14
 
 getDynamicBase :: IO String
 getDynamicBase = do
