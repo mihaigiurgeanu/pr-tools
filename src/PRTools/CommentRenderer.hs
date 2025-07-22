@@ -43,8 +43,8 @@ remapLine revision file branch target = do
 
 -- Render for review: conflict style with comments inserted
 renderForReview :: String -> String -> String -> [Cmt] -> IO String
-renderForReview baseB branch file cmts = do
-  baseContent <- catch (readProcess "git" ["show", baseB ++ ":" ++ file] "")
+renderForReview mergeBase branch file cmts = do
+  baseContent <- catch (readProcess "git" ["show", mergeBase ++ ":" ++ file] "")
                        (\(_ :: IOException) -> return "")
   featureContent <- catch (readProcess "git" ["show", branch ++ ":" ++ file] "")
                           (\e -> do hPutStrLn stderr $ "Warning: " ++ show (e :: IOException); return "")

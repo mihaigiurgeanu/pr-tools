@@ -29,10 +29,11 @@ main = do
   branch <- case optBranch opts of
     Just b -> return b
     Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
+  mergeBase <- trimTrailing <$> readProcess "git" ["merge-base", baseB, branch] ""
   author <- fmap trimTrailing (readProcess "git" ["config", "user.name"] "")
   commitsOut <- readProcess "git" ["log", "--format=%h %s", baseB ++ ".." ++ branch, "--"] ""
   let commitList = unlines $ map ("- " ++) $ lines commitsOut
-  diffSummary <- readProcess "git" ["diff", "--stat", baseB, branch, "--"] ""
+  diffSummary <- readProcess "git" ["diff", "--stat", mergeBase, branch, "--"] ""
   let descLines = case optMessage opts of
         Just msg -> lines msg
         Nothing -> ["(Enter your PR description here)"]

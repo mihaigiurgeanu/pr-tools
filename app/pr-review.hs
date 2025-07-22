@@ -84,8 +84,8 @@ getReviewFile branch reviewer = do
   return $ reviewDir </> safeBranch ++ "-" ++ reviewer ++ ".yaml"
 
 openEditor :: String -> String -> String -> [Cmt] -> IO [Cmt]
-openEditor filePath branch baseB existingCmts = do
-  conflictContent <- renderForReview baseB branch filePath existingCmts
+openEditor filePath branch mergeBase existingCmts = do
+  conflictContent <- renderForReview mergeBase branch filePath existingCmts
   withSystemTempFile "review.tmp" $ \tmpPath handle -> do
     hPutStr handle conflictContent
     hClose handle
@@ -144,6 +144,7 @@ main = do
     Just b -> return b
     Nothing -> getBaseBranch
   branch <- fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
+  mergeBase <- trimTrailing <$> readProcess "git" ["merge-base", baseB, branch] ""
   reviewer <- fmap trimTrailing (readProcess "git" ["config", "user.name"] "")
   reviewFile <- getReviewFile branch reviewer
   case cmd of
@@ -151,22 +152,22 @@ main = do
       mState <- loadReviewState reviewFile
       case mState of
         Just existing -> do
-          filesOut <- readProcess "git" ["diff", "--name-only", baseB, "--"] ""
+          filesOut <- readProcess "git" ["diff", "--name-only", mergeBase, "--"] ""
           let files = lines filesOut
           let resumed = existing { rsStatus = "active", rsFiles = files, rsCurrentIndex = 0 }
           saveReviewState reviewFile resumed
           putStrLn "Resuming existing review"
           recordPR branch >>= putStrLn
         Nothing -> do
-          filesOut <- readProcess "git" ["diff", "--name-only", baseB, "--"] ""
+          filesOut <- readProcess "git" ["diff", "--name-only", mergeBase, "--"] ""
           let files = lines filesOut
           let newState = ReviewState "active" 0 files [] branch reviewer
           saveReviewState reviewFile newState
           putStrLn "New review started"
           recordPR branch >>= putStrLn
-    Next -> handleNav NavNext reviewFile branch baseB
-    Previous -> handleNav NavPrevious reviewFile branch baseB
-    Open -> handleNav NavOpen reviewFile branch baseB
+    Next -> handleNav NavNext reviewFile branch mergeBase
+    Previous -> handleNav NavPrevious reviewFile branch mergeBase
+    Open -> handleNav NavOpen reviewFile branch mergeBase
     Files -> do
       mState <- loadReviewState reviewFile
       case mState of
@@ -175,10 +176,10 @@ main = do
           let current = rsCurrentIndex state
           mapM_ (\(i, f) -> putStrLn $ (if i == current then "> " else "  ") ++ f) (zip [0..] files)
         _ -> do
-          out <- readProcess "git" ["diff", "--name-only", baseB, "--"] ""
+          out <- readProcess "git" ["diff", "--name-only", mergeBase, "--"] ""
           putStr out
     Changes -> do
-      out <- readProcess "git" ["diff", baseB, "--"] ""
+      out <- readProcess "git" ["diff", mergeBase, "--"] ""
       putStr out
     Comment file line text -> do
       mState <- loadReviewState reviewFile
@@ -267,7 +268,7 @@ main = do
         Just state -> displayComments branch (rsComments state) withCtx
 
 handleNav :: NavAction -> FilePath -> String -> String -> IO ()
-handleNav action rf branch baseB = do
+handleNav action rf branch mergeBase = do
   mState <- loadReviewState rf
   case mState of
     Nothing -> do
@@ -280,7 +281,7 @@ handleNav action rf branch baseB = do
         let doOpen st = do
               let filePath = rsFiles st !! rsCurrentIndex st
               let fileCmts = filter (\c -> cmFile c == filePath) (rsComments st)
-              newCmts <- openEditor filePath branch baseB fileCmts
+              newCmts <- openEditor filePath branch mergeBase fileCmts
               mLatest <- loadReviewState rf
               let latest = case mLatest of
                     Just l -> l

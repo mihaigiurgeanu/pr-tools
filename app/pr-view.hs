@@ -70,13 +70,14 @@ main = do
       branch <- case mbBranch of
         Just b -> return b
         Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
+      mergeBase <- trimTrailing <$> readProcess "git" ["merge-base", baseB, branch] ""
       comms <- collectComments branch
       if full then do
         let allFiles = Map.keys comms  -- Files with comments
-        outputs <- mapM (renderFullFile branch baseB comms) allFiles
+        outputs <- mapM (renderFullFile branch mergeBase comms) allFiles
         putStr (unlines $ ("# Full Annotated Files for " ++ branch) : concat outputs)
       else do
-        diffText <- readProcess "git" ["diff", baseB, branch, "--"] ""
+        diffText <- readProcess "git" ["diff", mergeBase, branch, "--"] ""
         let diffLines = lines diffText
             go [] _ _ _ = ["```"]
             go (l:ls) cf cl comms = l : (case cf of
@@ -129,10 +130,10 @@ main = do
         ) allComments
 
 renderFullFile :: String -> String -> Comments -> String -> IO [String]
-renderFullFile branch baseB comms file = do
+renderFullFile branch mergeBase comms file = do
   content <- readProcess "git" ["show", branch ++ ":" ++ file] "" `catch` (\(_ :: IOException) -> return "")
   let fileLines = lines content
-  baseContent <- readProcess "git" ["show", baseB ++ ":" ++ file] "" `catch` (\(_ :: IOException) -> return "")
+  baseContent <- readProcess "git" ["show", mergeBase ++ ":" ++ file] "" `catch` (\(_ :: IOException) -> return "")
   let baseLines = lines baseContent
   let lineComments = fromMaybe Map.empty (Map.lookup file comms)
   let annotated = foldl' (\acc (i, line) ->
