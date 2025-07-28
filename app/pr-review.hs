@@ -44,7 +44,7 @@ data Command =
   | Files
   | Changes
   | Comment { cFile :: String, cLine :: Int, cText :: String }
-  | Resolve { rId :: String }
+  | Resolve { rId :: String, rAnswer :: Maybe String }
   | End
   | List
   | Send
@@ -74,6 +74,7 @@ commandParser = subparser
       <*> strOption (long "text" <> metavar "TEXT")
     resolveParser = Resolve
       <$> strOption (long "id" <> metavar "ID")
+      <*> optional (strOption (long "answer" <> metavar "ANSWER" <> help "Optional answer/explanation"))
     commentsParser = Comments
       <$> switch (long "with-context" <> help "Display comments with context")
 
@@ -198,14 +199,14 @@ main = do
             let newState = state { rsComments = rsComments state ++ [newComment] }
             saveReviewState reviewFile newState
             putStrLn $ "Added comment " ++ cmtId
-    Resolve rid -> do
+    Resolve rid rAnswer -> do
       mState <- loadReviewState reviewFile
       case mState of
         Nothing -> do
           hPutStrLn stderr "No review"
           exitFailure
         Just state -> do
-          let updatedComments = map (\c -> if cmId c == rid then c { cmResolved = True, cmStatus = "solved" } else c) (rsComments state)
+          let updatedComments = map (\c -> if cmId c == rid then c { cmResolved = True, cmStatus = "solved", cmAnswer = rAnswer } else c) (rsComments state)
           if updatedComments == rsComments state
             then putStrLn "Comment not found"
             else do
@@ -239,7 +240,7 @@ main = do
         Just state -> do
           let comments = rsComments state
           let commentTexts = map (\c ->
-					"File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ cmStatus c ++ "\nResolved: " ++ show (cmResolved c) ++ "\nRevision: " ++ cmRevision c ++ "\nComment: " ++ cmText c ++ "\n---\n"
+					"File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ cmStatus c ++ "\nResolved: " ++ show (cmResolved c) ++ "\nRevision: " ++ cmRevision c ++ "\nComment: " ++ cmText c ++ "\nAnswer: " ++ fromMaybe "" (cmAnswer c) ++ "\n---\n"
 				    ) comments
           let message = "Review for " ++ branch ++ " by " ++ reviewer ++ ":\n" ++ concat commentTexts
           mbWebhook <- getSlackWebhook
