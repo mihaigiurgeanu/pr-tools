@@ -1,6 +1,6 @@
 import Control.Monad (when)
 import qualified Data.Map.Strict as Map
-import Data.List (head, intercalate, length, notElem, null, (!!))
+import Data.List (head, intercalate, length, notElem, null, (!!), sortBy)
 import Options.Applicative
 import System.Exit (exitFailure, ExitCode(..))
 import System.IO (hPutStrLn, stderr)
@@ -62,20 +62,33 @@ main = do
           if null (prSnapshots pr)
             then putStrLn "No snapshots recorded"
             else do
-              let latest = last (prSnapshots pr)
-              putStrLn $ "Latest snapshot at " ++ psTimestamp latest
               base <- getBaseBranch
-              statuses <- mapM (\ci -> do
-                                 isA <- isAncestor (ciHash ci) base
-                                 return (ci, if isA then "merged" else "pending")
-                               ) (psCommits latest)
-              let mergedCount = length [() | (_, s) <- statuses, s == "merged"]
-              let total = length (psCommits latest)
-              putStrLn $ "Commit status: " ++ show mergedCount ++ "/" ++ show total ++ " merged"
-              if mergedCount == total && total > 0
+              (code, out, _) <- readProcessWithExitCode "git" ["rev-parse", "--verify", branch] ""
+              let branch_exists = code == ExitSuccess
+              let branch_tip = if branch_exists then trimTrailing out else ""
+              let all_commits = foldl (\m ps -> foldl (\m' ci -> if Map.member (ciHash ci) m' then m' else Map.insert (ciHash ci) (ci, psTimestamp ps) m') m (psCommits ps)) Map.empty (prSnapshots pr)
+              temp_list <- mapM (\(ci, ts) -> do
+                is_m <- isAncestor (ciHash ci) base
+                is_p <- if not branch_exists then return False else isAncestor (ciHash ci) branch_tip
+                let s = if is_m then "merged" else if is_p then "pending" else "removed"
+                return (ci, s, ts)
+                ) (Map.elems all_commits)
+              let sorted_statuses = sortBy (\(_,_,ts1) (_,_,ts2) -> compare ts1 ts2) temp_list
+              let mergedCount = length [() | (_,s,_) <- sorted_statuses, s == "merged"]
+              let pendingCount = length [() | (_,s,_) <- sorted_statuses, s == "pending"]
+              let removedCount = length [() | (_,s,_) <- sorted_statuses, s == "removed"]
+              let total = length sorted_statuses
+              putStrLn $ "Latest snapshot at " ++ psTimestamp (last (prSnapshots pr))
+              putStrLn $ "Commit status: " ++ show mergedCount ++ " merged, " ++ show pendingCount ++ " pending, " ++ show removedCount ++ " removed out of " ++ show total
+              let latest = last (prSnapshots pr)
+              let latest_hashes = map ciHash (psCommits latest)
+              let hash_to_s = Map.fromList [ (ciHash ci, s) | (ci, s, _) <- temp_list ]
+              let all_latest_merged = not (null latest_hashes) && all (\h -> Map.lookup h hash_to_s == Just "merged") latest_hashes
+              if all_latest_merged
                 then putStrLn $ "PR is fully merged into " ++ base
                 else return ()
-              mapM_ (\(ci, s) -> putStrLn $ "- " ++ take 7 (ciHash ci) ++ " " ++ ciMessage ci ++ " (" ++ s ++ ")") statuses
+              putStrLn "All historical commits:"
+              mapM_ (\(ci, s, _) -> putStrLn $ "- " ++ take 7 (ciHash ci) ++ " " ++ ciMessage ci ++ " (" ++ s ++ ")") sorted_statuses
     Record mbBranch -> do
       branch <- case mbBranch of
         Just b -> return b
