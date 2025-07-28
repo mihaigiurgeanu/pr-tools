@@ -95,6 +95,7 @@ executable pr-review
                   , process
                   , temporary
                   , uuid
+                  , split
   hs-source-dirs:   app
 
 executable pr-view

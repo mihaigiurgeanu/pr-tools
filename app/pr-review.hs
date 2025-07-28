@@ -1,12 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 import Control.Exception (catch, IOException)
+import Control.Monad (unless)
 import Data.Aeson (encode, object, (.=))
 import qualified Data.ByteString.Lazy as LBS
 import Data.Algorithm.Diff (PolyDiff(..), getGroupedDiff)
 import Data.Char (isSpace)
-import Data.List (filter, foldl', intercalate, zipWith)
-import Data.Maybe (fromMaybe)
+import Data.List (any, filter, findIndex, foldl', intercalate, zipWith, isPrefixOf)
+import Data.List.Split (splitOn)
+import Data.Maybe (fromMaybe, catMaybes, listToMaybe)
 import Data.UUID (toString)
 import Data.UUID.V4 (nextRandom)
 import Network.HTTP.Client (Response, RequestBody(RequestBodyLBS), httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseStatus)
@@ -49,6 +51,7 @@ data Command =
   | List
   | Send
   | Comments Bool
+  | ImportAnswers
 
 data NavAction = NavNext | NavPrevious | NavOpen
 
@@ -66,6 +69,7 @@ commandParser = subparser
  <> command "list" (info (pure List) (progDesc "List reviews"))
  <> command "send" (info (pure Send) (progDesc "Send review to Slack"))
  <> command "comments" (info commentsParser (progDesc "List all comments (compact by default)"))
+ <> command "import-answers" (info (pure ImportAnswers) (progDesc "Import answers from fix summary"))
   )
   where
     commentParser = Comment
@@ -78,6 +82,56 @@ commandParser = subparser
       <*> optional (strOption (long "answer" <> metavar "ANSWER" <> help "Optional answer/explanation"))
     commentsParser = Comments
       <$> switch (long "with-context" <> help "Display comments with context")
+
+trim :: String -> String
+trim = dropWhile isSpace . reverse . dropWhile isSpace . reverse
+
+parsePastedMessage :: String -> IO [Cmt]
+parsePastedMessage content = do
+  let sections = filter (not . all isSpace . unlines . lines) $ splitOn "---" content
+  putStrLn $ "Found " ++ show (length sections) ++ " sections to parse."
+  parsedSections <- mapM parseSection sections
+  let validCmts = catMaybes parsedSections
+  if null validCmts
+    then putStrLn "No valid comments parsed from any sections."
+    else putStrLn $ "Successfully parsed " ++ show (length validCmts) ++ " comments."
+  return validCmts
+
+parseSection :: String -> IO (Maybe Cmt)
+parseSection s = do
+  let ls = lines s
+  let findKeyIdx key = findIndex (\ln -> key `isPrefixOf` trim ln) ls
+  let getValue :: Int -> String -> Maybe String
+      getValue idx key = if idx < 0 then Nothing else let ln = ls !! idx in Just (drop (length key) ln)
+  let fileIdx = findKeyIdx "File:"
+  let lineIdx = findKeyIdx "Line:"
+  let idIdx = findKeyIdx "ID:"
+  let statusIdx = findKeyIdx "Status:"
+  let revisionIdx = findKeyIdx "Revision:"
+  let commentIdx = findKeyIdx "Comment:"
+  let answerIdx = findKeyIdx "Answer:"
+  case (fileIdx, lineIdx, idIdx, statusIdx, commentIdx, answerIdx) of
+    (Just fIdx, Just lIdx, Just iIdx, Just sIdx, Just cIdx, Just aIdx) | cIdx < aIdx -> do
+      let fileM = trim <$> getValue fIdx "File:"
+      let lineStrM = trim <$> getValue lIdx "Line:"
+      let lineM = lineStrM >>= \str -> case reads str of {[(l, "")] -> Just l; _ -> Nothing}
+      let cidM = trim <$> getValue iIdx "ID:"
+      let statusM = trim <$> getValue sIdx "Status:"
+      let revisionM = revisionIdx >>= (\ rIdx -> trim <$> getValue rIdx "Revision:")
+      case (fileM, lineM, cidM) of
+        (Just file, Just line, Just cid) | not (null file) && not (null cid) -> do
+          let status = fromMaybe "not-solved" statusM
+          let revision = fromMaybe "" revisionM
+          let commentStart = getValue cIdx "Comment:"
+          let commentRest = take (aIdx - cIdx - 1) (drop (cIdx + 1) ls)
+          let commentText = fromMaybe "" $ (\cs -> if null commentRest then cs else cs ++ "\n" ++ unlines commentRest) <$> commentStart
+          let answerStart = getValue aIdx "Answer:"
+          let answerRest = drop (aIdx + 1) ls
+          let answerText = fromMaybe "" $ (\as -> if null answerRest then as else as ++ "\n" ++ unlines answerRest) <$> answerStart
+          let finalAnswer = if all isSpace answerText then Nothing else Just answerText
+          return $ Just $ Cmt cid file line commentText (status == "solved") status finalAnswer revision
+        _ -> putStrLn "Section skipped: missing or invalid required fields." >> return Nothing
+    _ -> putStrLn "Section skipped: missing or misordered fields." >> return Nothing
 
 getReviewFile :: String -> String -> IO FilePath
 getReviewFile branch reviewer = do
@@ -268,6 +322,25 @@ main = do
           hPutStrLn stderr "No review"
           exitFailure
         Just state -> displayComments branch (rsComments state) withCtx
+    ImportAnswers -> do
+      withSystemTempFile "paste.tmp" $ \tmpPath handle -> do
+        hPutStr handle ""
+        hClose handle
+        editor <- fromMaybe "vim" <$> lookupEnv "EDITOR"
+        callProcess editor [tmpPath]
+        pasted <- readFile tmpPath
+        parsedCmts <- parsePastedMessage pasted
+        mState <- loadReviewState reviewFile
+        case mState of
+          Nothing -> do
+            hPutStrLn stderr "No review"
+            exitFailure
+          Just state -> do
+            let updatedComments = foldl' (\cs pc -> map (\c -> if cmId c == cmId pc then c { cmStatus = cmStatus pc, cmResolved = cmResolved pc, cmAnswer = cmAnswer pc } else c) cs) (rsComments state) parsedCmts
+            mapM_ (\pc -> unless (any (\c -> cmId c == cmId pc) (rsComments state)) $ putStrLn $ "Warning: No matching comment for ID " ++ cmId pc) parsedCmts
+            let newState = state { rsComments = updatedComments }
+            saveReviewState reviewFile newState
+            putStrLn "Imported answers for matching comments"
 
 handleNav :: NavAction -> FilePath -> String -> String -> IO ()
 handleNav action rf branch mergeBase = do
