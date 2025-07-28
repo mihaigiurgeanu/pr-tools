@@ -135,8 +135,9 @@ recordPR branch = do
     Just ex -> do
       currentTime <- getCurrentTime
       let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
-      let newSnapshot = PRSnapshot timeStr commits
-      let updatedSnapshots = prSnapshots ex ++ [newSnapshot]
+      let updatedSnapshots = if null commits
+                             then prSnapshots ex
+                             else prSnapshots ex ++ [PRSnapshot timeStr commits]
 
       -- Stale check (use latest snapshot even if no new one)
       staleDays <- getStaleDays
@@ -151,13 +152,17 @@ recordPR branch = do
       let statusAfterStale = if isStale && prStatus ex /= "stale" && prStatus ex /= "merged" then "stale" else prStatus ex
 
       -- Merged check (use latest commits if branch missing)
-      let checkCommits = if branchExists then commits else if null (prSnapshots ex) then [] else psCommits (last (prSnapshots ex))
+      let checkCommits = if not (null commits) then commits else if null (prSnapshots ex) then [] else psCommits (last (prSnapshots ex))
       allMerged <- if null checkCommits then return False else and <$> mapM (\ci -> isAncestor (ciHash ci) base) checkCommits
       let finalStatus = if allMerged && statusAfterStale /= "merged" then "merged" else statusAfterStale
 
       let updated = ex { prSnapshots = updatedSnapshots, prStatus = finalStatus }
       let newState = Map.insert branch updated state
       saveState newState
-      let msg = if finalStatus /= prStatus ex then "Status updated to " ++ finalStatus else ""
+      let msg = if finalStatus /= prStatus ex
+                then "Status updated to " ++ finalStatus
+                else if null commits
+                     then "No update performed"
+                     else ""
       let extraMsg = if not branchExists then " (branch does not exist; using latest snapshot for checks)" else ""
       return $ msg ++ extraMsg
