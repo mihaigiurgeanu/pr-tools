@@ -90,7 +90,7 @@ renderForReview mergeBase branch file cmts = do
               Nothing -> (line : rev_acc, rem_cmts)
               Just l ->
                 let (inserted, remaining) = span (\c -> cmLine c == l) rem_cmts
-                    markers = map (\c -> "-- COMMENT [" ++ cmId c ++ "]: " ++ trimTrailingNewlines (cmText c)) inserted
+                    markers = map (\c -> "-- COMMENT [" ++ cmId c ++ "]" ++ (if cmResolved c then "[Resolved]" else "") ++ "[" ++ cmStatus c ++ "]: " ++ trimTrailingNewlines (cmText c) ++ (maybe "" (\answer -> " [" ++ trimTrailingNewlines answer ++ "]") (cmAnswer c))) inserted
                     to_add = line : markers
                     new_rev = foldl' (flip (:)) rev_acc (reverse to_add)
                 in (new_rev, remaining)
