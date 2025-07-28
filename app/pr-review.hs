@@ -44,7 +44,7 @@ data Command =
   | Files
   | Changes
   | Comment { cFile :: String, cLine :: Int, cText :: String }
-  | Resolve { rId :: String, rAnswer :: Maybe String }
+  | Resolve { rId :: String, rStatus :: Maybe String, rAnswer :: Maybe String }
   | End
   | List
   | Send
@@ -74,6 +74,7 @@ commandParser = subparser
       <*> strOption (long "text" <> metavar "TEXT")
     resolveParser = Resolve
       <$> strOption (long "id" <> metavar "ID")
+      <*> optional (strOption (long "status" <> metavar "STATUS" <> help "Optional status (e.g., solved, not-solved, will-not-solve)"))
       <*> optional (strOption (long "answer" <> metavar "ANSWER" <> help "Optional answer/explanation"))
     commentsParser = Comments
       <$> switch (long "with-context" <> help "Display comments with context")
@@ -199,14 +200,14 @@ main = do
             let newState = state { rsComments = rsComments state ++ [newComment] }
             saveReviewState reviewFile newState
             putStrLn $ "Added comment " ++ cmtId
-    Resolve rid rAnswer -> do
+    Resolve rid mbRStatus mbRAnswer -> do
       mState <- loadReviewState reviewFile
       case mState of
         Nothing -> do
           hPutStrLn stderr "No review"
           exitFailure
         Just state -> do
-          let updatedComments = map (\c -> if cmId c == rid then c { cmResolved = True, cmStatus = "solved", cmAnswer = rAnswer } else c) (rsComments state)
+          let updatedComments = map (\c -> if cmId c == rid then c { cmResolved = True, cmStatus = fromMaybe (cmStatus c) mbRStatus, cmAnswer = fromMaybe (cmAnswer c) (Just mbRAnswer) } else c) (rsComments state)
           if updatedComments == rsComments state
             then putStrLn "Comment not found"
             else do
