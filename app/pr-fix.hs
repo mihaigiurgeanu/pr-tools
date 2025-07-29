@@ -4,7 +4,7 @@ import Data.Aeson (encode, object, (.=))
 import Data.List (findIndex, foldl', intercalate, isPrefixOf, nub, sortBy, zipWith)
 import Data.List.Split (splitOn)
 import qualified Data.ByteString.Lazy as LBS
-import Data.Char (isSpace)
+import Data.Char (isSpace, toLower)
 import Data.Maybe (fromMaybe, catMaybes, listToMaybe)
 import Data.Ord (comparing)
 import Data.UUID (toString)
@@ -24,6 +24,8 @@ import PRTools.Config (getSlackWebhook, trimTrailing, sanitizeBranch)
 import PRTools.ReviewState
 import PRTools.CommentRenderer
 import PRTools.PRState (recordPR)
+
+import Control.Monad (unless)
 
 trim :: String -> String
 trim = dropWhile isSpace . reverse . dropWhile isSpace . reverse
@@ -249,6 +251,18 @@ main = do
   fixFile <- getFixFile branch fixer
   case cmd of
     FStart -> do
+      exists <- doesFileExist fixFile
+      if exists then do
+        mState <- loadReviewState fixFile
+        case mState of
+          Just state | rsStatus state == "fixing" -> do
+            putStrLn "Active fix session found. Overwrite? (y/n)"
+            response <- getLine
+            unless (trim (map toLower response) == "y") $ do
+              putStrLn "Aborted."
+              exitFailure
+          _ -> return ()
+      else return ()
       withSystemTempFile "paste.tmp" $ \tmpPath handle -> do
         hPutStr handle ""
         hClose handle
