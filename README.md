@@ -48,20 +48,52 @@ Update the source tree and reinstall:
 ## Configuration
 
 
-### Slack Integration
+## Slack Configurations
 
-For `pr-send` and `pr-merge` to post notifications to Slack, add the `slack-webhook` to your `.pr-tools.yaml` file.
+PR Tools supports two Slack integration methods: Incoming Webhooks for simple text messages and Slack API Tokens for advanced features like file attachments. Webhooks are easier to set up and sufficient for basic notifications, while API Tokens enable uploading detailed content as files, improving readability for long messages (e.g., reviews or snapshots). If both are configured, the tool prioritizes API Tokens for commands that benefit from attachments; otherwise, it falls back to webhooks.
 
-- Generate a webhook URL in your Slack workspace: Go to [Slack Apps](https://api.slack.com/apps), create an app, and enable Incoming Webhooks.
+### Webhook Configuration
 
-If not set, `pr-send` will fail with an error, and `pr-merge` will skip the notification.
+Webhooks allow posting plain text messages to a Slack channel. This is ideal for short notifications but may truncate or clutter long content.
 
-### Base Branch and Slack Webhook
+To obtain a webhook:
+1. Go to [Slack Apps](https://api.slack.com/apps) and create a new app.
+2. Enable "Incoming Webhooks" under "Add features & functionality".
+3. Activate webhooks and add one to a channel, copying the generated URL (starts with `https://hooks.slack.com/services/`).
+
+Add to your `.pr-tools.yaml`:
+```yaml
+slack-webhook: "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"
+```
+
+If not set, commands like `pr-send` will fail, and others (e.g., `pr-merge`) will skip notifications.
+
+### Slack API Token Configuration
+
+API Tokens enable file attachments, allowing detailed messages (e.g., from `pr-review send`, `pr-fix send`, `pr-send`) to be uploaded as .md files with a short summary message. This requires a bot token with `files:write` scope.
+
+To obtain a token:
+1. Go to [Slack Apps](https://api.slack.com/apps) and create a new app.
+2. Under "Add features & functionality", select "Bots" and create a bot user.
+3. Under "OAuth & Permissions", add the `files:write` scope (and optionally `chat:write` for messages).
+4. Install the app to your workspace, granting permissions.
+5. Copy the "Bot User OAuth Token" (starts with `xoxb-`).
+6. Find the channel ID: In Slack, right-click the channel, select "View channel details", and copy the ID (starts with `C` or `G`).
+
+Add to your `.pr-tools.yaml`:
+```yaml
+slack-token: "xoxb-your-bot-token"
+slack-channel: "C0123456789"  # Channel ID
+```
+
+### Base Branch and Slack Configuration
 
 Use `pr-init` or manually create a `.pr-tools.yaml` file in the project root with:
 ```yaml
 base-branch: main  # or your default base branch
-slack-webhook: "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"  # optional Slack webhook URL
+slack-webhook: "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"  # optional
+slack-token: "xoxb-your-bot-token"  # optional for attachments
+slack-channel: "C0123456789"  # required if using token
 ```
 
 ### Recommended .gitignore Entries
