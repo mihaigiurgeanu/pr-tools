@@ -2,7 +2,7 @@ import Data.Maybe (fromMaybe)
 import System.Directory (doesFileExist)
 import System.IO (hPutStrLn, stderr)
 import System.Process (readProcess)
-import PRTools.Config (Config(..), getBaseBranch, getSlackWebhook)
+import PRTools.Config (Config(..), getBaseBranch, getSlackWebhook, getSlackToken, getSlackChannel, getStaleDays)
 
 import Control.Monad (when)
 import Data.List (isInfixOf)
@@ -36,24 +36,37 @@ main = do
   -- Handle .pr-tools.yaml
   configPath <- return ".pr-tools.yaml"
   configExists <- doesFileExist configPath
-  if configExists
-    then do
-      mbBase <- getBaseBranch
-      mbWebhook <- getSlackWebhook
-      putStrLn $ "Current base-branch: " ++ mbBase
-      case mbWebhook of
-        Just wh -> putStrLn $ "Current slack-webhook: " ++ wh
-        Nothing -> putStrLn "slack-webhook not set."
-    else do
-      putStrLn "Creating .pr-tools.yaml"
-      putStr "Enter base-branch (default: main): "
-      hFlush stdout
-      baseInput <- getLine
-      let base = if null baseInput then "main" else baseInput
-      putStr "Enter slack-webhook (optional, press Enter to skip): "
-      hFlush stdout
-      webhookInput <- getLine
-      let webhook = if null webhookInput then "" else "slack-webhook: " ++ webhookInput
-      let content = "base-branch: " ++ base ++ "\n" ++ webhook
-      writeFile configPath content
-      putStrLn ".pr-tools.yaml created."
+  currentBase <- getBaseBranch
+  currentWebhook <- getSlackWebhook
+  currentToken <- getSlackToken
+  currentChannel <- getSlackChannel
+  currentStale <- getStaleDays
+  let action = if configExists then "Updating" else "Creating"
+  putStrLn $ action ++ " .pr-tools.yaml"
+  putStr $ "Enter base-branch (current/default: " ++ currentBase ++ "): "
+  hFlush stdout
+  baseInput <- getLine
+  let base = if null baseInput then currentBase else baseInput
+  putStr $ "Enter slack-webhook (current: " ++ fromMaybe "not set" currentWebhook ++ ", press Enter to keep): "
+  hFlush stdout
+  webhookInput <- getLine
+  let webhook = if null webhookInput then fromMaybe "" currentWebhook else webhookInput
+  let webhookLine = if null webhook then "" else "slack-webhook: " ++ webhook ++ "\n"
+  putStr $ "Enter slack-token (current: " ++ fromMaybe "not set" currentToken ++ ", press Enter to keep): "
+  hFlush stdout
+  tokenInput <- getLine
+  let token = if null tokenInput then fromMaybe "" currentToken else tokenInput
+  let tokenLine = if null token then "" else "slack-token: " ++ token ++ "\n"
+  putStr $ "Enter slack-channel (current: " ++ fromMaybe "not set" currentChannel ++ ", press Enter to keep): "
+  hFlush stdout
+  channelInput <- getLine
+  let channel = if null channelInput then fromMaybe "" currentChannel else channelInput
+  let channelLine = if null channel then "" else "slack-channel: " ++ channel ++ "\n"
+  putStr $ "Enter stale-days (current/default: " ++ show currentStale ++ ", press Enter to keep): "
+  hFlush stdout
+  staleInput <- getLine
+  let stale = if null staleInput then show currentStale else staleInput
+  let staleLine = "stale-days: " ++ stale ++ "\n"
+  let content = "base-branch: " ++ base ++ "\n" ++ webhookLine ++ tokenLine ++ channelLine ++ staleLine
+  writeFile configPath content
+  putStrLn $ ".pr-tools.yaml " ++ (if configExists then "updated." else "created.")

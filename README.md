@@ -210,7 +210,7 @@ pr-fix send
 
 ### pr-init
 
-Interactively generate or update configuration file (.pr-tools.yaml) for pr-tools, including base-branch and optional slack-webhook. Also updates .gitignore with recommended entries.
+Interactively generate or update configuration file (.pr-tools.yaml) for pr-tools, prompting for base-branch, optional slack-webhook, slack-token, slack-channel, and stale-days (with current values as defaults if updating). Also updates .gitignore with recommended entries.
 
 ```
 pr-init
