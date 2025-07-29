@@ -23,10 +23,11 @@ import System.FilePath.Glob (glob)
 import System.IO (hClose, hPutStr, hPutStrLn, stderr)
 import System.IO.Temp (withSystemTempFile)
 import System.Process (callProcess, readProcess)
-import PRTools.Config (getBaseBranch, getSlackWebhook, reviewDir, trimTrailing, sanitizeBranch)
+import PRTools.Config (getBaseBranch, getSlackWebhook, reviewDir, trimTrailing, sanitizeBranch, getSlackToken, getSlackChannel)
 import PRTools.ReviewState
 import PRTools.CommentRenderer
 import PRTools.PRState (recordPR)
+import PRTools.Slack (sendViaApi, sendViaWebhook)
 
 data Global = Global { gBaseBranch :: Maybe String }
 
@@ -299,24 +300,21 @@ main = do
           let commentTexts = map (\c ->
                                         "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ cmStatus c ++ "\nResolved: " ++ show (cmResolved c) ++ "\nRevision: " ++ cmRevision c ++ "\nComment: " ++ cmText c ++ "\nAnswer: " ++ fromMaybe "" (cmAnswer c) ++ "\n---\n"
                                     ) comments
-          let message = "Review for " ++ branch ++ " by " ++ reviewer ++ ":\n" ++ concat commentTexts
+          let fullContent = concat commentTexts
+          let summary = "Review for " ++ branch ++ " by " ++ reviewer ++ " attached."
+          let filename = "review-summary-" ++ sanitizeBranch branch ++ "-" ++ reviewer ++ ".md"
+          mbToken <- getSlackToken
+          mbChannel <- getSlackChannel
           mbWebhook <- getSlackWebhook
-          case mbWebhook of
-            Nothing -> do
-              hPutStrLn stderr "Slack webhook not configured"
-              exitFailure
-            Just webhook -> do
-              manager <- newManager tlsManagerSettings
-              initReq <- parseRequest webhook
-              let req = initReq
-                    { method = "POST"
-                    , requestBody = RequestBodyLBS $ encode $ object ["text" .= message]
-                    , requestHeaders = [("Content-Type", "application/json")]
-                    }
-              response <- httpLbs req manager
-              if statusCode (responseStatus response) == 200
-                then putStrLn "Review sent to Slack"
-                else hPutStrLn stderr "Error sending to Slack"
+          case (mbToken, mbChannel) of
+            (Just token, Just channel) -> sendViaApi summary fullContent filename channel token
+            _ -> case mbWebhook of
+              Nothing -> do
+                hPutStrLn stderr "Slack not configured"
+                exitFailure
+              Just webhook -> do
+                let message = "Review for " ++ branch ++ " by " ++ reviewer ++ ":\n" ++ fullContent
+                sendViaWebhook webhook message
     Comments withCtx showAll showResolved -> do
       mState <- loadReviewState reviewFile
       case mState of

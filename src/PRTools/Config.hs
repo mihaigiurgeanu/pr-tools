@@ -10,10 +10,10 @@ import Data.Yaml (FromJSON(..), ParseException, decodeFileEither, parseJSON, wit
 import System.Directory (doesFileExist)
 import System.Process (readProcess)
 
-data Config = Config { cfgBaseBranch :: String, cfgSlackWebhook :: Maybe String, cfgStaleDays :: Maybe Int } deriving Show
+data Config = Config { cfgBaseBranch :: String, cfgSlackWebhook :: Maybe String, cfgStaleDays :: Maybe Int, cfgSlackToken :: Maybe String, cfgSlackChannel :: Maybe String } deriving Show
 
 instance FromJSON Config where
-  parseJSON = withObject "Config" $ \v -> Config <$> v .: "base-branch" <*> v .:? "slack-webhook" <*> v .:? "stale-days"
+  parseJSON = withObject "Config" $ \v -> Config <$> v .: "base-branch" <*> v .:? "slack-webhook" <*> v .:? "stale-days" <*> v .:? "slack-token" <*> v .:? "slack-channel"
 
 getBaseBranch :: IO String
 getBaseBranch = do
@@ -36,6 +36,30 @@ getSlackWebhook = do
       res <- decodeFileEither configPath
       case res of
         Right config -> return $ cfgSlackWebhook config
+        Left _ -> return Nothing
+    else return Nothing
+
+getSlackToken :: IO (Maybe String)
+getSlackToken = do
+  let configPath = ".pr-tools.yaml"
+  exists <- doesFileExist configPath
+  if exists
+    then do
+      res <- decodeFileEither configPath
+      case res of
+        Right config -> return $ cfgSlackToken config
+        Left _ -> return Nothing
+    else return Nothing
+
+getSlackChannel :: IO (Maybe String)
+getSlackChannel = do
+  let configPath = ".pr-tools.yaml"
+  exists <- doesFileExist configPath
+  if exists
+    then do
+      res <- decodeFileEither configPath
+      case res of
+        Right config -> return $ cfgSlackChannel config
         Left _ -> return Nothing
     else return Nothing
 

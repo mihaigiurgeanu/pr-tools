@@ -17,6 +17,7 @@ library
                   , PRTools.PRState
                   , PRTools.ReviewState
                   , PRTools.CommentRenderer
+                  , PRTools.Slack
   build-depends:    aeson
                   , containers
                   , directory
@@ -25,6 +26,13 @@ library
                   , Diff
                   , time
                   , extra
+                  , uuid
+                  , bytestring
+                  , http-client
+                  , http-client-tls
+                  , http-types
+                  , text
+                  , case-insensitive
   hs-source-dirs:   src
 
 executable pr-snapshot
