@@ -42,7 +42,7 @@ data Command =
     Start
   | Next
   | Previous
-  | Open
+  | Open (Maybe String)
   | Files
   | Changes
   | Comment { cFile :: String, cLine :: Int, cText :: String }
@@ -60,7 +60,7 @@ commandParser = subparser
   ( command "start" (info (pure Start <**> helper) (progDesc "Start review"))
  <> command "next" (info (pure Next <**> helper) (progDesc "Next file"))
  <> command "previous" (info (pure Previous <**> helper) (progDesc "Previous file"))
- <> command "open" (info (pure Open <**> helper) (progDesc "Open current file"))
+ <> command "open" (info (Open <$> optional (strOption (long "file" <> metavar "FILE" <> help "Specific file to open")) <**> helper) (progDesc "Open current or specific file"))
  <> command "files" (info (pure Files <**> helper) (progDesc "List files"))
  <> command "changes" (info (pure Changes <**> helper) (progDesc "Show changes"))
  <> command "comment" (info (commentParser <**> helper) (progDesc "Add comment"))
@@ -223,9 +223,9 @@ main = do
           saveReviewState reviewFile newState
           putStrLn "New review started"
           recordPR branch >>= putStrLn
-    Next -> handleNav NavNext reviewFile branch mergeBase
-    Previous -> handleNav NavPrevious reviewFile branch mergeBase
-    Open -> handleNav NavOpen reviewFile branch mergeBase
+    Next -> handleNav NavNext reviewFile branch mergeBase Nothing
+    Previous -> handleNav NavPrevious reviewFile branch mergeBase Nothing
+    Open mbFile -> handleNav NavOpen reviewFile branch mergeBase mbFile
     Files -> do
       mState <- loadReviewState reviewFile
       case mState of
@@ -348,8 +348,8 @@ main = do
             saveReviewState reviewFile newState
             putStrLn "Imported answers for matching comments"
 
-handleNav :: NavAction -> FilePath -> String -> String -> IO ()
-handleNav action rf branch mergeBase = do
+handleNav :: NavAction -> FilePath -> String -> String -> Maybe String -> IO ()
+handleNav action rf branch mergeBase mbFile = do
   mState <- loadReviewState rf
   case mState of
     Nothing -> do
@@ -359,6 +359,15 @@ handleNav action rf branch mergeBase = do
       hPutStrLn stderr "No active review"
       exitFailure
       else do
+        updatedState <- case mbFile of
+          Just filePath -> do
+            let files = rsFiles state
+            case findIndex (== filePath) files of
+              Just idx -> return state { rsCurrentIndex = idx }
+              Nothing -> do
+                let newFiles = files ++ [filePath]
+                return state { rsFiles = newFiles, rsCurrentIndex = length files }
+          Nothing -> return state
         let doOpen st = do
               let filePath = rsFiles st !! rsCurrentIndex st
               let fileCmts = filter (\c -> cmFile c == filePath) (rsComments st)
@@ -373,21 +382,17 @@ handleNav action rf branch mergeBase = do
         let tryOpen st = catch (doOpen st) (\e -> do
               hPutStrLn stderr $ "Error opening file: " ++ show (e :: IOException)
               return st)
-        case action of
-          NavOpen -> do
-            _ <- tryOpen state
+        let (finalState, maybeMsg) = case action of
+              NavOpen -> (updatedState, Nothing)
+              NavPrevious -> if rsCurrentIndex updatedState > 0
+                             then (updatedState { rsCurrentIndex = rsCurrentIndex updatedState - 1 }, Nothing)
+                             else (updatedState, Just "No previous files")
+              NavNext -> if rsCurrentIndex updatedState < length (rsFiles updatedState) - 1
+                         then (updatedState { rsCurrentIndex = rsCurrentIndex updatedState + 1 }, Nothing)
+                         else (updatedState, Just "No more files")
+        case maybeMsg of
+          Just msg -> putStrLn msg
+          Nothing -> do
+            saveReviewState rf finalState
+            _ <- tryOpen finalState
             return ()
-          NavPrevious -> 
-            if rsCurrentIndex state > 0 then do
-              let newState = state { rsCurrentIndex = rsCurrentIndex state - 1 }
-              saveReviewState rf newState
-              _ <- tryOpen newState
-              return ()
-            else putStrLn "No previous files"
-          NavNext ->
-            if rsCurrentIndex state < length (rsFiles state) - 1 then do
-              let newState = state { rsCurrentIndex = rsCurrentIndex state + 1 }
-              saveReviewState rf newState
-              _ <- tryOpen newState
-              return ()
-            else putStrLn "No more files"

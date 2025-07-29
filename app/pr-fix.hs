@@ -43,7 +43,7 @@ data FixCommand =
     FStart
   | FComments Bool Bool Bool
   | FFiles
-  | FOpen
+  | FOpen (Maybe String)
   | FNext
   | FPrevious
   | FEnd
@@ -60,7 +60,7 @@ commandParser = subparser
   ( command "start" (info (pure FStart <**> helper) (progDesc "Start fix session"))
  <> command "comments" (info (commentsParser <**> helper) (progDesc "Display comments (compact by default)"))
  <> command "files" (info (pure FFiles <**> helper) (progDesc "List files"))
- <> command "open" (info (pure FOpen <**> helper) (progDesc "Open current file"))
+ <> command "open" (info (FOpen <$> optional (strOption (long "file" <> metavar "FILE" <> help "Specific file to open")) <**> helper) (progDesc "Open current or specific file"))
  <> command "next" (info (pure FNext <**> helper) (progDesc "Next file"))
  <> command "previous" (info (pure FPrevious <**> helper) (progDesc "Previous file"))
  <> command "end" (info (pure FEnd <**> helper) (progDesc "End fix session"))
@@ -221,8 +221,8 @@ handleOpen fixFile branch = do
 
 data NavAction = NavNext | NavPrevious | NavOpen
 
-handleNav :: NavAction -> FilePath -> String -> IO ()
-handleNav action ff branch = do
+handleNav :: NavAction -> FilePath -> String -> Maybe String -> IO ()
+handleNav action ff branch mbFile = do
   mState <- loadReviewState ff
   case mState of
     Nothing -> do
@@ -232,18 +232,27 @@ handleNav action ff branch = do
       hPutStrLn stderr "No active fix session"
       exitFailure
       else do
-        let (updatedState, maybeMsg) = case action of
-              NavOpen -> (state, Nothing)
-              NavPrevious -> if rsCurrentIndex state > 0
-                             then (state { rsCurrentIndex = rsCurrentIndex state - 1 }, Nothing)
-                             else (state, Just "No previous files")
-              NavNext -> if rsCurrentIndex state < length (rsFiles state) - 1
-                         then (state { rsCurrentIndex = rsCurrentIndex state + 1 }, Nothing)
-                         else (state, Just "No more files")
+        updatedState <- case mbFile of
+          Just filePath -> do
+            let files = rsFiles state
+            case findIndex (== filePath) files of
+              Just idx -> return state { rsCurrentIndex = idx }
+              Nothing -> do
+                hPutStrLn stderr $ "File " ++ filePath ++ " not in fix session"
+                exitFailure
+          Nothing -> return state
+        let (finalState, maybeMsg) = case action of
+              NavOpen -> (updatedState, Nothing)
+              NavPrevious -> if rsCurrentIndex updatedState > 0
+                             then (updatedState { rsCurrentIndex = rsCurrentIndex updatedState - 1 }, Nothing)
+                             else (updatedState, Just "No previous files")
+              NavNext -> if rsCurrentIndex updatedState < length (rsFiles updatedState) - 1
+                         then (updatedState { rsCurrentIndex = rsCurrentIndex updatedState + 1 }, Nothing)
+                         else (updatedState, Just "No more files")
         case maybeMsg of
           Just msg -> putStrLn msg
           Nothing -> do
-            saveReviewState ff updatedState
+            saveReviewState ff finalState
             handleOpen ff branch
 
 main :: IO ()
@@ -297,9 +306,9 @@ main = do
           let current = rsCurrentIndex state
           mapM_ (\(i, f) -> putStrLn $ (if i == current then "> " else "  ") ++ f) (zip [0..] files)
         _ -> hPutStrLn stderr "No active fix session"
-    FOpen -> handleNav NavOpen fixFile branch
-    FNext -> handleNav NavNext fixFile branch
-    FPrevious -> handleNav NavPrevious fixFile branch
+    FOpen mbFile -> handleNav NavOpen fixFile branch mbFile
+    FNext -> handleNav NavNext fixFile branch Nothing
+    FPrevious -> handleNav NavPrevious fixFile branch Nothing
     FResolve rid status mbAnswer -> do
       mState <- loadReviewState fixFile
       case mState of
