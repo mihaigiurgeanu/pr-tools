@@ -27,6 +27,8 @@ import PRTools.PRState (recordPR)
 import PRTools.Slack (sendViaApi, sendViaWebhook)
 
 import Control.Monad (unless)
+import qualified Data.Map.Strict as Map
+import Data.Maybe (isJust)
 
 trim :: String -> String
 trim = dropWhile isSpace . reverse . dropWhile isSpace . reverse
@@ -346,7 +348,18 @@ main = do
                                         "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ cmStatus c ++ "\nResolved: " ++ show (cmResolved c) ++ "\nRevision: " ++ cmRevision c ++ "\nComment: " ++ cmText c ++ "\nAnswer: " ++ fromMaybe "" (cmAnswer c) ++ "\n---\n"
                                     ) comments
           let fullContent = concat commentTexts
-          let summary = "Fix summary for " ++ branch ++ " by " ++ fixer ++ " attached."
+          let total = length comments
+          let solved = length (filter (\c -> cmStatus c == "solved") comments)
+          let answered = length (filter (isJust . cmAnswer) comments)
+          let unsolved = length (filter (\c -> cmStatus c == "not-solved") comments)
+          let statusCounts = foldl' (\m c -> Map.insertWith (+) (cmStatus c) 1 m) Map.empty comments
+          let breakdown = intercalate ", " [k ++ ": " ++ show v | (k, v) <- Map.toList statusCounts]
+          let happyAllAnswered = if answered == total then "All comments were answered! 🎉" else ""
+          let happyAllSolved = if solved == total then "Everything has been solved! 🎉" else ""
+          let happyNoUnsolved = if unsolved == 0 then "No unsolved comments! 🎉" else ""
+          let stats = "Solved: " ++ show solved ++ ", Answered: " ++ show answered ++ ", Status breakdown: " ++ breakdown
+          let summaryParts = filter (not . null) [happyAllAnswered, happyAllSolved, happyNoUnsolved, stats]
+          let summary = "Fix summary for " ++ branch ++ " by " ++ fixer ++ " attached. " ++ intercalate " " summaryParts
           let filename = "fix-summary-" ++ sanitizeBranch branch ++ "-" ++ fixer ++ ".md"
           mbToken <- getSlackToken
           mbChannel <- getSlackChannel
@@ -358,5 +371,5 @@ main = do
                 hPutStrLn stderr "Slack not configured"
                 exitFailure
               Just webhook -> do
-                let message = "Fix summary for " ++ branch ++ " by " ++ fixer ++ ":\n" ++ fullContent
+                let message = summary ++ "\n" ++ fullContent
                 sendViaWebhook webhook message

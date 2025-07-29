@@ -301,7 +301,12 @@ main = do
                                         "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ cmStatus c ++ "\nResolved: " ++ show (cmResolved c) ++ "\nRevision: " ++ cmRevision c ++ "\nComment: " ++ cmText c ++ "\nAnswer: " ++ fromMaybe "" (cmAnswer c) ++ "\n---\n"
                                     ) comments
           let fullContent = concat commentTexts
-          let summary = "Review for " ++ branch ++ " by " ++ reviewer ++ " attached."
+          let total = length comments
+          let solved = length (filter cmResolved comments)
+          let unsolved = total - solved
+          let summary = if total == 0 || solved == total
+                        then "Review for " ++ branch ++ " by " ++ reviewer ++ ": Everything is solved! 🎉"
+                        else "Review for " ++ branch ++ " by " ++ reviewer ++ " attached. Total comments: " ++ show total ++ ", Solved: " ++ show solved ++ ", To solve: " ++ show unsolved ++ "."
           let filename = "review-summary-" ++ sanitizeBranch branch ++ "-" ++ reviewer ++ ".md"
           mbToken <- getSlackToken
           mbChannel <- getSlackChannel
@@ -313,7 +318,7 @@ main = do
                 hPutStrLn stderr "Slack not configured"
                 exitFailure
               Just webhook -> do
-                let message = "Review for " ++ branch ++ " by " ++ reviewer ++ ":\n" ++ fullContent
+                let message = summary ++ "\n" ++ fullContent
                 sendViaWebhook webhook message
     Comments withCtx showAll showResolved -> do
       mState <- loadReviewState reviewFile
