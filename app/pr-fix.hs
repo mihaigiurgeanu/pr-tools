@@ -175,40 +175,43 @@ handleOpen fixFile branch = do
                 editor <- fromMaybe "vim" <$> lookupEnv "EDITOR"
                 callProcess editor [tmpPath]
                 editedContent <- readFile tmpPath
-                let editedLines = lines editedContent
-                mLatest <- loadReviewState fixFile
-                let latest = case mLatest of
-                      Just l -> l
-                      Nothing -> state
-                let (cleanLines, updatedCmts) = foldl' (\(cls, ucs) el ->
-                      if take 19 el == "-- REVIEW COMMENT [" then
-                        let rest = drop 19 el
-                            cid = take 8 rest
-                            afterCid = drop 9 rest  -- drop 8 id + ]
-                            textEndM = findSub " [status:" afterCid
-                            textEnd = fromMaybe (length afterCid) textEndM
-                            text_ = take textEnd afterCid  -- includes ": " prefix? Wait, afterCid starts with ": "
-                            text = drop 2 text_  -- drop ": "
-                            afterText = drop textEnd afterCid
-                            statusStartLen = length (" [status:" :: String)
-                            statusEndM = findSub "]" (drop statusStartLen afterText)
-                            statusEnd = fromMaybe (length afterText - statusStartLen) statusEndM
-                            status = take statusEnd (drop statusStartLen afterText)
-                            afterStatus = drop (statusStartLen + statusEnd + 1) afterText  -- +1 for ]
-                            answer = if null afterStatus then Nothing else let
-                                       answerStartLen = length (" [answer:" :: String)
-                                       answerEndM = findSub "]" (drop answerStartLen afterStatus)
-                                       answerEnd = fromMaybe (length afterStatus - answerStartLen) answerEndM
-                                     in Just (take answerEnd (drop answerStartLen afterStatus))
-                            updatedC = map (\c -> if cmId c == cid then c { cmStatus = status, cmAnswer = answer, cmResolved = (status == "solved") } else c) ucs
-                        in (cls, updatedC)
-                      else (cls ++ [el], ucs)
-                      ) ([], rsComments latest) editedLines
-                writeFile file (unlines cleanLines)
-                currentRev <- trimTrailing <$> readProcess "git" ["rev-parse", "HEAD"] ""
-                let updatedWithRev = map (\c -> c { cmRevision = currentRev }) updatedCmts
-                let newState = latest { rsComments = updatedWithRev }
-                saveReviewState fixFile newState
+                if editedContent == augmentedContent then do
+                  putStrLn "No changes detected; skipping overwrite."
+                else do
+                  let editedLines = lines editedContent
+                  mLatest <- loadReviewState fixFile
+                  let latest = case mLatest of
+                        Just l -> l
+                        Nothing -> state
+                  let (cleanLines, updatedCmts) = foldl' (\(cls, ucs) el ->
+                        if take 19 el == "-- REVIEW COMMENT [" then
+                          let rest = drop 19 el
+                              cid = take 8 rest
+                              afterCid = drop 9 rest  -- drop 8 id + ]
+                              textEndM = findSub " [status:" afterCid
+                              textEnd = fromMaybe (length afterCid) textEndM
+                              text_ = take textEnd afterCid  -- includes ": " prefix? Wait, afterCid starts with ": "
+                              text = drop 2 text_  -- drop ": "
+                              afterText = drop textEnd afterCid
+                              statusStartLen = length (" [status:" :: String)
+                              statusEndM = findSub "]" (drop statusStartLen afterText)
+                              statusEnd = fromMaybe (length afterText - statusStartLen) statusEndM
+                              status = take statusEnd (drop statusStartLen afterText)
+                              afterStatus = drop (statusStartLen + statusEnd + 1) afterText  -- +1 for ]
+                              answer = if null afterStatus then Nothing else let
+                                         answerStartLen = length (" [answer:" :: String)
+                                         answerEndM = findSub "]" (drop answerStartLen afterStatus)
+                                         answerEnd = fromMaybe (length afterStatus - answerStartLen) answerEndM
+                                       in Just (take answerEnd (drop answerStartLen afterStatus))
+                              updatedC = map (\c -> if cmId c == cid then c { cmStatus = status, cmAnswer = answer, cmResolved = (status == "solved") } else c) ucs
+                          in (cls, updatedC)
+                        else (cls ++ [el], ucs)
+                        ) ([], rsComments latest) editedLines
+                  writeFile file (unlines cleanLines)
+                  currentRev <- trimTrailing <$> readProcess "git" ["rev-parse", "HEAD"] ""
+                  let updatedWithRev = map (\c -> c { cmRevision = currentRev }) updatedCmts
+                  let newState = latest { rsComments = updatedWithRev }
+                  saveReviewState fixFile newState
   where
     findSub :: String -> String -> Maybe Int
     findSub sub str = go 0 str
