@@ -24,6 +24,7 @@ library
                   , yaml
                   , Diff
                   , time
+                  , extra
   hs-source-dirs:   src
 
 executable pr-snapshot

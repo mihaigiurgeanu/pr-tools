@@ -50,26 +50,26 @@ data Command =
   | End
   | List
   | Send
-  | Comments Bool
+  | Comments Bool Bool Bool
   | ImportAnswers
 
 data NavAction = NavNext | NavPrevious | NavOpen
 
 commandParser :: Parser Command
 commandParser = subparser
-  ( command "start" (info (pure Start) (progDesc "Start review"))
- <> command "next" (info (pure Next) (progDesc "Next file"))
- <> command "previous" (info (pure Previous) (progDesc "Previous file"))
- <> command "open" (info (pure Open) (progDesc "Open current file"))
- <> command "files" (info (pure Files) (progDesc "List files"))
- <> command "changes" (info (pure Changes) (progDesc "Show changes"))
- <> command "comment" (info commentParser (progDesc "Add comment"))
- <> command "resolve" (info resolveParser (progDesc "Resolve comment"))
- <> command "end" (info (pure End) (progDesc "End review"))
- <> command "list" (info (pure List) (progDesc "List reviews"))
- <> command "send" (info (pure Send) (progDesc "Send review to Slack"))
- <> command "comments" (info commentsParser (progDesc "List all comments (compact by default)"))
- <> command "import-answers" (info (pure ImportAnswers) (progDesc "Import answers from fix summary"))
+  ( command "start" (info (pure Start <**> helper) (progDesc "Start review"))
+ <> command "next" (info (pure Next <**> helper) (progDesc "Next file"))
+ <> command "previous" (info (pure Previous <**> helper) (progDesc "Previous file"))
+ <> command "open" (info (pure Open <**> helper) (progDesc "Open current file"))
+ <> command "files" (info (pure Files <**> helper) (progDesc "List files"))
+ <> command "changes" (info (pure Changes <**> helper) (progDesc "Show changes"))
+ <> command "comment" (info (commentParser <**> helper) (progDesc "Add comment"))
+ <> command "resolve" (info (resolveParser <**> helper) (progDesc "Resolve comment"))
+ <> command "end" (info (pure End <**> helper) (progDesc "End review"))
+ <> command "list" (info (pure List <**> helper) (progDesc "List reviews"))
+ <> command "send" (info (pure Send <**> helper) (progDesc "Send review to Slack"))
+ <> command "comments" (info (commentsParser <**> helper) (progDesc "List all comments (compact by default)"))
+ <> command "import-answers" (info (pure ImportAnswers <**> helper) (progDesc "Import answers from fix summary"))
   )
   where
     commentParser = Comment
@@ -82,6 +82,8 @@ commandParser = subparser
       <*> optional (strOption (long "answer" <> metavar "ANSWER" <> help "Optional answer/explanation"))
     commentsParser = Comments
       <$> switch (long "with-context" <> help "Display comments with context")
+      <*> switch (long "all" <> help "Display all comments (default: unresolved only)")
+      <*> switch (long "resolved" <> help "Display only resolved comments")
 
 trim :: String -> String
 trim = dropWhile isSpace . reverse . dropWhile isSpace . reverse
@@ -295,8 +297,8 @@ main = do
         Just state -> do
           let comments = rsComments state
           let commentTexts = map (\c ->
-					"File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ cmStatus c ++ "\nResolved: " ++ show (cmResolved c) ++ "\nRevision: " ++ cmRevision c ++ "\nComment: " ++ cmText c ++ "\nAnswer: " ++ fromMaybe "" (cmAnswer c) ++ "\n---\n"
-				    ) comments
+                                        "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ cmStatus c ++ "\nResolved: " ++ show (cmResolved c) ++ "\nRevision: " ++ cmRevision c ++ "\nComment: " ++ cmText c ++ "\nAnswer: " ++ fromMaybe "" (cmAnswer c) ++ "\n---\n"
+                                    ) comments
           let message = "Review for " ++ branch ++ " by " ++ reviewer ++ ":\n" ++ concat commentTexts
           mbWebhook <- getSlackWebhook
           case mbWebhook of
@@ -315,13 +317,17 @@ main = do
               if statusCode (responseStatus response) == 200
                 then putStrLn "Review sent to Slack"
                 else hPutStrLn stderr "Error sending to Slack"
-    Comments withCtx -> do
+    Comments withCtx showAll showResolved -> do
       mState <- loadReviewState reviewFile
       case mState of
         Nothing -> do
           hPutStrLn stderr "No review"
           exitFailure
-        Just state -> displayComments branch (rsComments state) withCtx
+        Just state -> do
+          let filteredCmts = if showAll then rsComments state
+                             else if showResolved then filter cmResolved (rsComments state)
+                             else filter (not . cmResolved) (rsComments state)
+          displayComments branch filteredCmts withCtx
     ImportAnswers -> do
       withSystemTempFile "paste.tmp" $ \tmpPath handle -> do
         hPutStr handle ""

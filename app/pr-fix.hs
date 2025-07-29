@@ -39,7 +39,7 @@ getFixFile branch fixer = do
 
 data FixCommand =
     FStart
-  | FComments Bool
+  | FComments Bool Bool Bool
   | FFiles
   | FOpen
   | FNext
@@ -55,19 +55,21 @@ globalParser = pure Global
 
 commandParser :: Parser FixCommand
 commandParser = subparser
-  ( command "start" (info (pure FStart) (progDesc "Start fix session"))
- <> command "comments" (info commentsParser (progDesc "Display comments (compact by default)"))
- <> command "files" (info (pure FFiles) (progDesc "List files"))
- <> command "open" (info (pure FOpen) (progDesc "Open current file"))
- <> command "next" (info (pure FNext) (progDesc "Next file"))
- <> command "previous" (info (pure FPrevious) (progDesc "Previous file"))
- <> command "end" (info (pure FEnd) (progDesc "End fix session"))
- <> command "send" (info (pure FSend) (progDesc "Send fix summary to Slack"))
- <> command "resolve" (info resolveParser (progDesc "Resolve a comment"))
+  ( command "start" (info (pure FStart <**> helper) (progDesc "Start fix session"))
+ <> command "comments" (info (commentsParser <**> helper) (progDesc "Display comments (compact by default)"))
+ <> command "files" (info (pure FFiles <**> helper) (progDesc "List files"))
+ <> command "open" (info (pure FOpen <**> helper) (progDesc "Open current file"))
+ <> command "next" (info (pure FNext <**> helper) (progDesc "Next file"))
+ <> command "previous" (info (pure FPrevious <**> helper) (progDesc "Previous file"))
+ <> command "end" (info (pure FEnd <**> helper) (progDesc "End fix session"))
+ <> command "send" (info (pure FSend <**> helper) (progDesc "Send fix summary to Slack"))
+ <> command "resolve" (info (resolveParser <**> helper) (progDesc "Resolve a comment"))
   )
   where
     commentsParser = FComments
       <$> switch (long "with-context" <> help "Display comments with context")
+      <*> switch (long "all" <> help "Display all comments (default: unresolved only)")
+      <*> switch (long "resolved" <> help "Display only resolved comments")
     resolveParser = FResolve
       <$> strOption (long "id" <> metavar "ID" <> help "Comment ID")
       <*> strOption (long "status" <> metavar "STATUS" <> help "Status (e.g., solved, not-solved, will-not-solve)")
@@ -261,10 +263,14 @@ main = do
         saveReviewState fixFile state
         putStrLn "Fix session started"
         recordPR branch >>= putStrLn
-    FComments withCtx -> do
+    FComments withCtx showAll showResolved -> do
       mState <- loadReviewState fixFile
       case mState of
-        Just state | rsStatus state == "fixing" -> displayComments (rsBranch state) (rsComments state) withCtx
+        Just state | rsStatus state == "fixing" -> do
+          let filteredCmts = if showAll then rsComments state
+                             else if showResolved then filter cmResolved (rsComments state)
+                             else filter (not . cmResolved) (rsComments state)
+          displayComments (rsBranch state) filteredCmts withCtx
         _ -> hPutStrLn stderr "No active fix session"
     FFiles -> do
       mState <- loadReviewState fixFile

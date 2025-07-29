@@ -7,6 +7,7 @@ module PRTools.CommentRenderer where
 import Control.Exception (catch, IOException)
 import Data.Algorithm.Diff (PolyDiff(..), getGroupedDiff)
 import Data.List (foldl', sortBy)
+import Data.List.Extra (trim)
 import System.IO (hPutStrLn, stderr)
 import System.Process (readProcess)
 import PRTools.ReviewState (Cmt(..))
@@ -134,7 +135,8 @@ displayComments branch cmts withCtx = do
       let start = max 0 (cmLine c - 4)
       let context = take 7 (drop start fileLines)
       let numberedContext = zipWith (\i ln -> "  " ++ show (start + 1 + i) ++ ": " ++ ln) [0..] context
-      putStrLn $ "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ cmStatus c ++ "\nComment: " ++ cmText c ++ "\nAnswer: " ++ fromMaybe "" (cmAnswer c) ++ "\nContext:\n" ++ unlines numberedContext ++ "\n---"
+      putStrLn $ "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nResolved: " ++ show (cmResolved c) ++ "\nStatus: " ++ cmStatus c ++ "\nComment: " ++ trim (cmText c) ++ "\nAnswer: " ++ trim (fromMaybe "" (cmAnswer c)) ++ "\nContext:\n" ++ unlines numberedContext ++ "\n---"
       ) cmts
     else
-    mapM_ (\c -> putStrLn $ cmFile c ++ ":" ++ show (cmLine c) ++ " [" ++ cmId c ++ "] - " ++ map (\ch -> if ch == '\n' then ' ' else ch) (cmText c) ++ " [" ++ cmStatus c ++ "]" ++ maybe "" (\a -> " answer: " ++ map (\ch -> if ch == '\n' then ' ' else ch) a) (cmAnswer c)) cmts
+    mapM_ (\c -> putStrLn $ cmFile c ++ ":" ++ show (cmLine c) ++ " [" ++ cmId c ++ "][" ++ (if cmResolved c then "Resolved" else "") ++ "]\n\t" ++ trim (map (\ch -> if ch == '\n' then ' ' else ch) (cmText c)) ++ " [" ++ cmStatus c ++ "]" ++ maybe "" (\a -> " answer: " ++ trim (map (\ch -> if ch == '\n' then ' ' else ch) a)) (cmAnswer c) ++ "\n") cmts
+
