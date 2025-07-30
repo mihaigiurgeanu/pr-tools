@@ -79,6 +79,10 @@ To obtain a token:
 4. Install the app to your workspace, granting permissions.
 5. Copy the "Bot User OAuth Token" (starts with `xoxb-`).
 6. Find the channel ID: In Slack, right-click the channel, select "View channel details", and copy the ID (starts with `C` or `G`).
+7. Invite the `pr-tools` bot to the channel:
+   ```
+   /invite @pr-tools
+   ```
 
 Add to your `.pr-tools.yaml`:
 ```yaml
