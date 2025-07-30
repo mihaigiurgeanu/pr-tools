@@ -23,6 +23,7 @@ import System.Process (callProcess, readProcess)
 import PRTools.Config (getSlackWebhook, trimTrailing, sanitizeBranch, getSlackToken, getSlackChannel)
 import PRTools.ReviewState
 import PRTools.CommentRenderer
+import PRTools.CommentFormatter
 import PRTools.PRState (recordPR)
 import PRTools.Slack (sendViaApi, sendViaWebhook)
 
@@ -85,67 +86,6 @@ data App = App { appGlobal :: Global, appCommand :: FixCommand }
 appParser :: Parser App
 appParser = App <$> globalParser <*> commandParser
 
-parsePastedMessage :: String -> IO [Cmt]
-parsePastedMessage content = do
-  let sections = filter (not . all isSpace . unlines . lines) $ splitOn "---" content
-  putStrLn $ "Found " ++ show (length sections) ++ " sections to parse."
-  parsedSections <- mapM parseSection sections
-  let validCmts = catMaybes parsedSections
-  if null validCmts
-    then putStrLn "No valid comments parsed from any sections."
-    else putStrLn $ "Successfully parsed " ++ show (length validCmts) ++ " comments."
-  return validCmts
-
-parseSection :: String -> IO (Maybe Cmt)
-parseSection s = do
-  let allLs = lines s
-  let ls = dropWhile (\ln -> take 5 (trim ln) /= "File:") allLs
-  if null ls then do
-    putStrLn "Section skipped: no 'File:' found."
-    return Nothing
-    else do
-    let f = head ls
-    if take 5 (trim f) /= "File:" then do
-      putStrLn "Section skipped: invalid 'File:' line."
-      return Nothing
-      else do
-      let file = parseLine "File:" f
-      if null file then do
-        putStrLn "Section skipped: empty file name."
-        return Nothing
-        else do
-        let rest = tail ls
-        let idLine = findLine "ID:" rest
-        let statusLine = findLine "Status:" rest
-        let resolvedLine = findLine "Resolved:" rest
-        let revisionLine = findLine "Revision:" rest
-        let lineLine = findLine "Line:" rest
-        let mbCommentIdx = findIndex (\ln -> "Comment:" `isPrefixOf` trim ln) rest
-        case (lineLine, mbCommentIdx) of
-          (Just l_, Just idx) -> do
-            let lineStr = parseLine "Line:" l_
-            case reads lineStr of
-              [(line, "")] -> do
-                let cid = fromMaybe "" (parseLine "ID:" <$> idLine)
-                let status = fromMaybe "not-solved" (parseLine "Status:" <$> statusLine)
-                let resolved = maybe False (== "True") (parseLine "Resolved:" <$> resolvedLine)
-                let revision = fromMaybe "" (parseLine "Revision:" <$> revisionLine)
-                let commentLines = drop idx rest
-                let firstLineRaw = head commentLines
-                let prefixLen = length ("Comment: " :: String)
-                let firstPart = drop prefixLen firstLineRaw
-                let otherParts = tail commentLines
-                let parts = firstPart : otherParts
-                let commentText = if null parts then "" else unlines (init parts) ++ last parts
-                u <- if null cid then nextRandom else return undefined  -- Use existing ID if present
-                let finalId = if null cid then take 8 $ filter (/= '-') $ toString u else cid
-                return $ Just $ Cmt finalId file line commentText resolved status Nothing revision
-              _ -> return Nothing
-          _ -> return Nothing
-  where
-    parseLine :: String -> String -> String
-    parseLine prefix l = trim (drop (length prefix) l)
-    findLine prefix ls' = listToMaybe [ln | ln <- ls', prefix `isPrefixOf` trim ln]
 
 handleOpen :: FilePath -> String -> IO ()
 handleOpen fixFile branch = do
@@ -186,41 +126,59 @@ handleOpen fixFile branch = do
                   let latest = case mLatest of
                         Just l -> l
                         Nothing -> state
-                  let (cleanLines, updatedCmts) = foldl' (\(cls, ucs) el ->
-                        if take 19 el == "-- REVIEW COMMENT [" then
-                          let rest = drop 19 el
-                              cid = take 8 rest
-                              afterCid = drop 9 rest  -- drop 8 id + ]
-                              textEndM = findSub " [status:" afterCid
-                              textEnd = fromMaybe (length afterCid) textEndM
-                              text_ = take textEnd afterCid  -- includes ": " prefix? Wait, afterCid starts with ": "
-                              text = drop 2 text_  -- drop ": "
-                              afterText = drop textEnd afterCid
-                              statusStartLen = length (" [status:" :: String)
-                              statusEndM = findSub "]" (drop statusStartLen afterText)
-                              statusEnd = fromMaybe (length afterText - statusStartLen) statusEndM
-                              status = take statusEnd (drop statusStartLen afterText)
-                              afterStatus = drop (statusStartLen + statusEnd + 1) afterText  -- +1 for ]
-                              answer = if null afterStatus then Nothing else let
-                                         answerStartLen = length (" [answer:" :: String)
-                                         answerEndM = findSub "]" (drop answerStartLen afterStatus)
-                                         answerEnd = fromMaybe (length afterStatus - answerStartLen) answerEndM
-                                       in Just (take answerEnd (drop answerStartLen afterStatus))
-                              updatedC = map (\c -> if cmId c == cid then c { cmStatus = status, cmAnswer = answer, cmResolved = (status == "solved") } else c) ucs
-                          in (cls, updatedC)
-                        else (cls ++ [el], ucs)
-                        ) ([], rsComments latest) editedLines
+                  let (cleanLines, updatedCmts) = parseEditedFix editedLines (rsComments latest)
                   writeFile file (unlines cleanLines)
                   currentRev <- trimTrailing <$> readProcess "git" ["rev-parse", "HEAD"] ""
                   let updatedWithRev = map (\c -> c { cmRevision = currentRev }) updatedCmts
                   let newState = latest { rsComments = updatedWithRev }
                   saveReviewState fixFile newState
+
+parseEditedFix :: [String] -> [Cmt] -> ([String], [Cmt])
+parseEditedFix lines cmts = go lines [] cmts
   where
+    go [] accLines accCmts = (reverse accLines, accCmts)
+    go (ln:lns) accLines accCmts
+      | "-- REVIEW COMMENT BEGIN [" `isPrefixOf` ln =
+          let (block, rest) = span (\l -> not ("-- REVIEW COMMENT END" `isPrefixOf` l)) lns
+              fullBlock = ln : block  -- Exclude the END line if present
+              updated = parseBlock fullBlock accCmts
+              skipEnd = if not (null rest) && "-- REVIEW COMMENT END" `isPrefixOf` (head rest) then 1 else 0
+              afterRest = drop skipEnd rest
+          in go afterRest accLines updated  -- Skip block, continue with rest
+      | otherwise = go lns (ln : accLines) accCmts
+
+    parseBlock :: [String] -> [Cmt] -> [Cmt]  -- Returns only updated cmts
+    parseBlock (header:body) accCmts =
+      let cidStart = length ("-- REVIEW COMMENT BEGIN [" :: String)
+          cidEnd = findIndex (== ']') (drop cidStart header)  -- Safer than maybe
+          cid = case cidEnd of
+                  Just end -> take 8 (drop cidStart header)
+                  Nothing -> ""
+          afterCid = maybe "" (\end -> drop (cidStart + end + 1) header) cidEnd  -- +1 for ]
+          statusStart = findSub "[status:" afterCid
+          afterStatusLabel = maybe afterCid (\start -> drop (start + 8) afterCid) statusStart
+          statusEnd = findSub "]" afterStatusLabel
+          status = maybe "not-solved" (\end -> take end afterStatusLabel) statusEnd
+          afterStatus = maybe afterStatusLabel (\end -> drop (end + 1) afterStatusLabel) statusEnd
+          answerStart = findSub "[answer:" afterStatus
+          headerAnswer = maybe Nothing (\start -> Just (drop (start + 8) afterStatus)) answerStart  -- Up to end of header
+          -- Body: Split comment text and any multi-line answer
+          (textLines, answerLines) = span (not . ("[answer:" `isPrefixOf`)) body
+          text = intercalate "\n" (map trim textLines)
+          bodyAnswer = if null answerLines then Nothing else Just (intercalate "\n" (map trim (tail answerLines)))  -- Skip [answer: line if present
+          finalAnswer = case (headerAnswer, bodyAnswer) of
+                          (Just ha, Just ba) -> Just (ha ++ "\n" ++ ba)  -- Combine if both
+                          (Just ha, Nothing) -> Just ha
+                          (Nothing, Just ba) -> Just ba
+                          _ -> Nothing
+          updated = map (\c -> if cmId c == cid then c { cmText = if null text then cmText c else text, cmStatus = status, cmAnswer = finalAnswer } else c) accCmts
+      in updated
+    parseBlock _ accCmts = accCmts  -- Invalid block, skip
+
     findSub :: String -> String -> Maybe Int
     findSub sub str = go 0 str
-      where
-        go _ [] = Nothing
-        go i xs = if sub `isPrefixOf` xs then Just i else go (i+1) (tail xs)
+      where go _ [] = Nothing
+            go i xs = if sub `isPrefixOf` xs then Just i else go (i+1) (tail xs)
 
 data NavAction = NavNext | NavPrevious | NavOpen
 
@@ -317,7 +275,7 @@ main = do
       case mState of
         Nothing -> hPutStrLn stderr "No fix session"
         Just state -> do
-          let updatedComments = map (\c -> if cmId c == rid then c { cmStatus = status, cmResolved = (status == "solved"), cmAnswer = mbAnswer } else c) (rsComments state)
+          let updatedComments = map (\c -> if cmId c == rid then c { cmStatus = status, cmAnswer = mbAnswer } else c) (rsComments state)
           if updatedComments == rsComments state
             then putStrLn "Comment not found"
             else do
@@ -344,10 +302,7 @@ main = do
         Nothing -> hPutStrLn stderr "No fix session"
         Just state -> do
           let comments = rsComments state
-          let commentTexts = map (\c ->
-                                        "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ cmStatus c ++ "\nResolved: " ++ show (cmResolved c) ++ "\nRevision: " ++ cmRevision c ++ "\nComment: " ++ cmText c ++ "\nAnswer: " ++ fromMaybe "" (cmAnswer c) ++ "\n---\n"
-                                    ) comments
-          let fullContent = concat commentTexts
+          let fullContent = concatMap formatComment comments
           let total = length comments
           let solved = length (filter (\c -> cmStatus c == "solved") comments)
           let answered = length (filter (isJust . cmAnswer) comments)

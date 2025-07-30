@@ -6,14 +6,13 @@ module PRTools.CommentRenderer where
 
 import Control.Exception (catch, IOException)
 import Data.Algorithm.Diff (PolyDiff(..), getGroupedDiff)
-import Data.List (foldl', sortBy)
-import Data.List.Extra (trim)
+import Data.List (foldl', sortBy, isPrefixOf, intercalate, dropWhile, span)
+import Data.List.Extra (trim, splitOn)
 import System.IO (hPutStrLn, stderr)
 import System.Process (readProcess)
 import PRTools.ReviewState (Cmt(..))
 import Data.Maybe (fromMaybe, catMaybes)
 import Data.Ord (comparing)
-import Data.List (dropWhile, span)
 import PRTools.Config (trimTrailing)
 import Control.Arrow (first)
 
@@ -91,16 +90,14 @@ renderForReview mergeBase branch file cmts = do
               Nothing -> (line : rev_acc, rem_cmts)
               Just l ->
                 let (inserted, remaining) = span (\c -> cmLine c == l) rem_cmts
-                    markers = map (\c -> "-- COMMENT [" ++ cmId c ++ "]" ++ (if cmResolved c then "[Resolved]" else "") ++ "[" ++ cmStatus c ++ "]: " ++ trimTrailingNewlines (cmText c) ++ (maybe "" (\answer -> " [" ++ trimTrailingNewlines answer ++ "]") (cmAnswer c))) inserted
-                    to_add = line : markers
-                    new_rev = foldl' (flip (:)) rev_acc (reverse to_add)
+                    markers = concatMap renderCommentMarker inserted
+                    to_add =  markers ++ [line]
+                    new_rev = foldl' (flip (:)) rev_acc to_add
                 in (new_rev, remaining)
           (final_rev, final_rem) = foldl' go ([], scmts) clines
           augmented = reverse final_rev
-          final_aug = if null final_rem then augmented else augmented ++ map (\c -> "-- COMMENT [" ++ cmId c ++ "]: " ++ trimTrailingNewlines (cmText c)) final_rem
+          final_aug = if null final_rem then augmented else augmented ++ concatMap renderCommentMarker final_rem
       in final_aug
-      where
-        trimTrailingNewlines s = reverse $ dropWhile (== '\n') $ reverse s
 
 -- Render for fix: current content with editable markers
 renderForFix :: String -> String -> [Cmt] -> IO String
@@ -123,8 +120,17 @@ renderForFix branch file cmts = do
           insert_pos = max 0 insert_pos'
           before = take insert_pos acc
           after = drop insert_pos acc
-          marker = "-- REVIEW COMMENT [" ++ cmId c ++ "]: " ++ cmText c ++ " [status:" ++ cmStatus c ++ "] [answer:" ++ fromMaybe "" (cmAnswer c) ++ "]"
-      in (before ++ [marker] ++ after, offset + 1)
+          markerLines = renderCommentMarker c
+      in (before ++ markerLines ++ after, offset + length markerLines)
+
+normalizeComment :: String -> String
+normalizeComment = intercalate "\n" . map trim . lines
+
+renderCommentMarker :: Cmt -> [String]
+renderCommentMarker c =
+  let header = "-- REVIEW COMMENT BEGIN [" ++ cmId c ++ "] [status:" ++ cmStatus c ++ "]" ++ (if cmResolved c then " [resolved]" else "") ++ " [answer:" ++ fromMaybe "" (cmAnswer c) ++ "]"
+      textLines = lines (cmText c)
+  in header : textLines ++ ["-- REVIEW COMMENT END"]
 
 displayComments :: String -> [Cmt] -> Bool -> IO ()
 displayComments branch cmts withCtx = do
@@ -135,8 +141,10 @@ displayComments branch cmts withCtx = do
       let start = max 0 (cmLine c - 4)
       let context = take 7 (drop start fileLines)
       let numberedContext = zipWith (\i ln -> "  " ++ show (start + 1 + i) ++ ": " ++ ln) [0..] context
-      putStrLn $ "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nResolved: " ++ show (cmResolved c) ++ "\nStatus: " ++ cmStatus c ++ "\nComment: " ++ trim (cmText c) ++ "\nAnswer: " ++ trim (fromMaybe "" (cmAnswer c)) ++ "\nContext:\n" ++ unlines numberedContext ++ "\n---"
+      putStrLn $ "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nResolved: " ++ show (cmResolved c) ++ "\nStatus: " ++ cmStatus c ++ "\nComment: " ++ cmText c ++ "\nAnswer: " ++ fromMaybe "" (cmAnswer c) ++ "\nContext:\n" ++ unlines numberedContext ++ "\n---"
       ) cmts
     else
-    mapM_ (\c -> putStrLn $ cmFile c ++ ":" ++ show (cmLine c) ++ " [" ++ cmId c ++ "][" ++ (if cmResolved c then "Resolved" else "") ++ "]\n\t" ++ trim (map (\ch -> if ch == '\n' then ' ' else ch) (cmText c)) ++ " [" ++ cmStatus c ++ "]" ++ maybe "" (\a -> " answer: " ++ trim (map (\ch -> if ch == '\n' then ' ' else ch) a)) (cmAnswer c) ++ "\n") cmts
+    mapM_ (\c -> putStrLn $ cmFile c ++ ":" ++ show (cmLine c) ++ " [" ++ cmId c ++ "][" ++ (if cmResolved c then "Resolved" else "") ++ "]\n\t" ++ replace '\n' " | " (trim (cmText c)) ++ " [" ++ cmStatus c ++ "]" ++ maybe "" (\a -> " answer: " ++ replace '\n' " | " (trim a)) (cmAnswer c) ++ "\n") cmts
+  where
+    replace old new s = intercalate new (splitOn [old] s)
 

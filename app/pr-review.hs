@@ -26,6 +26,7 @@ import System.Process (callProcess, readProcess)
 import PRTools.Config (getBaseBranch, getSlackWebhook, reviewDir, trimTrailing, sanitizeBranch, getSlackToken, getSlackChannel)
 import PRTools.ReviewState
 import PRTools.CommentRenderer
+import PRTools.CommentFormatter
 import PRTools.PRState (recordPR)
 import PRTools.Slack (sendViaApi, sendViaWebhook)
 
@@ -89,52 +90,7 @@ commandParser = subparser
 trim :: String -> String
 trim = dropWhile isSpace . reverse . dropWhile isSpace . reverse
 
-parsePastedMessage :: String -> IO [Cmt]
-parsePastedMessage content = do
-  let sections = filter (not . all isSpace . unlines . lines) $ splitOn "---" content
-  putStrLn $ "Found " ++ show (length sections) ++ " sections to parse."
-  parsedSections <- mapM parseSection sections
-  let validCmts = catMaybes parsedSections
-  if null validCmts
-    then putStrLn "No valid comments parsed from any sections."
-    else putStrLn $ "Successfully parsed " ++ show (length validCmts) ++ " comments."
-  return validCmts
-
-parseSection :: String -> IO (Maybe Cmt)
-parseSection s = do
-  let ls = lines s
-  let findKeyIdx key = findIndex (\ln -> key `isPrefixOf` trim ln) ls
-  let getValue :: Int -> String -> Maybe String
-      getValue idx key = if idx < 0 then Nothing else let ln = ls !! idx in Just (drop (length key) ln)
-  let fileIdx = findKeyIdx "File:"
-  let lineIdx = findKeyIdx "Line:"
-  let idIdx = findKeyIdx "ID:"
-  let statusIdx = findKeyIdx "Status:"
-  let revisionIdx = findKeyIdx "Revision:"
-  let commentIdx = findKeyIdx "Comment:"
-  let answerIdx = findKeyIdx "Answer:"
-  case (fileIdx, lineIdx, idIdx, statusIdx, commentIdx, answerIdx) of
-    (Just fIdx, Just lIdx, Just iIdx, Just sIdx, Just cIdx, Just aIdx) | cIdx < aIdx -> do
-      let fileM = trim <$> getValue fIdx "File:"
-      let lineStrM = trim <$> getValue lIdx "Line:"
-      let lineM = lineStrM >>= \str -> case reads str of {[(l, "")] -> Just l; _ -> Nothing}
-      let cidM = trim <$> getValue iIdx "ID:"
-      let statusM = trim <$> getValue sIdx "Status:"
-      let revisionM = revisionIdx >>= (\ rIdx -> trim <$> getValue rIdx "Revision:")
-      case (fileM, lineM, cidM) of
-        (Just file, Just line, Just cid) | not (null file) && not (null cid) -> do
-          let status = fromMaybe "not-solved" statusM
-          let revision = fromMaybe "" revisionM
-          let commentStart = getValue cIdx "Comment:"
-          let commentRest = take (aIdx - cIdx - 1) (drop (cIdx + 1) ls)
-          let commentText = fromMaybe "" $ (\cs -> if null commentRest then cs else cs ++ "\n" ++ unlines commentRest) <$> commentStart
-          let answerStart = getValue aIdx "Answer:"
-          let answerRest = drop (aIdx + 1) ls
-          let answerText = fromMaybe "" $ (\as -> if null answerRest then as else as ++ "\n" ++ unlines answerRest) <$> answerStart
-          let finalAnswer = if all isSpace answerText then Nothing else Just answerText
-          return $ Just $ Cmt cid file line commentText (status == "solved") status finalAnswer revision
-        _ -> putStrLn "Section skipped: missing or invalid required fields." >> return Nothing
-    _ -> putStrLn "Section skipped: missing or misordered fields." >> return Nothing
+-- No local parsePastedMessage; use shared
 
 getReviewFile :: String -> String -> IO FilePath
 getReviewFile branch reviewer = do
@@ -160,21 +116,25 @@ openEditor filePath branch mergeBase existingCmts = do
     mapM (\(l, t) -> do
       u <- nextRandom
       let cid = take 8 $ filter (/= '-') $ toString u
-      return $ Cmt cid filePath l t False "not-solved" Nothing currentRev
+      return $ Cmt cid filePath l (normalizeComment t) False "not-solved" Nothing currentRev
       ) newPairs
 
 -- Reused helpers
 extractEditedFeature :: [String] -> [String]
-extractEditedFeature editedLines =
-  let (feat, _, _) = foldl' (\(f, inb, inf) line ->
-                                 if line == "<<<<<<< BASE" then (f, True, False)
-                                 else if line == "=======" then (f, False, True)
-                                 else if line == ">>>>>>> FEATURE" then (f, False, False)
-                                 else if take 12 line == "-- COMMENT [" then (f, inb, inf)  -- skip existing comments
-                                 else if inf || (not inb && not inf) then (f ++ [line], inb, inf)
-                                 else (f, inb, inf)
-                            ) ([], False, False) editedLines
-  in feat
+extractEditedFeature editedLines = go editedLines [] False False
+  where
+    go [] acc _ _ = reverse acc
+    go (ln:lns) acc inBase inFeature
+      | ln == "<<<<<<< BASE" = go lns acc True False
+      | ln == "=======" = go lns acc False True
+      | ln == ">>>>>>> FEATURE" = go lns acc False False
+      | "-- REVIEW COMMENT BEGIN [" `isPrefixOf` ln =
+          let (block, rest) = span (\l -> not ("-- REVIEW COMMENT END" `isPrefixOf` l)) lns
+              skipEnd = if not (null rest) && "-- REVIEW COMMENT END" `isPrefixOf` (head rest) then 1 else 0
+              after = drop skipEnd rest
+          in go after acc inBase inFeature  -- Skip entire block
+      | inFeature || (not inBase && not inFeature) = go lns (ln : acc) inBase inFeature
+      | otherwise = go lns acc inBase inFeature
 
 extractComments :: [String] -> [String] -> [(Int, String)]
 extractComments original edited =
@@ -182,13 +142,13 @@ extractComments original edited =
       (cmts, al, current) = foldl' (\(cs, al, cur) d ->
         case d of
           Both ls _ ->
-            let newCs = if null cur then cs else cs ++ [(if al == 0 then 1 else al, intercalate "\n" cur)]
+            let newCs = if null cur then cs else cs ++ [(if al == 0 then 1 else al, normalizeComment (intercalate "\n" cur))]
             in (newCs, al + length ls, [])
           First ls ->
             (cs, al + length ls, cur)
           Second ls -> (cs, al, cur ++ ls)
         ) ([], 1, []) diffs
-      finalCmts = if null current then cmts else cmts ++ [(if al == 0 then 1 else al, intercalate "\n" current)]
+      finalCmts = if null current then cmts else cmts ++ [(if al == 0 then 1 else al, normalizeComment (intercalate "\n" current))]
   in filter (\(_, t) -> not (all isSpace t)) finalCmts  -- filter non-empty
 
 data App = App { appGlobal :: Global, appCommand :: Command }
@@ -297,10 +257,7 @@ main = do
           exitFailure
         Just state -> do
           let comments = rsComments state
-          let commentTexts = map (\c ->
-                                        "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nStatus: " ++ cmStatus c ++ "\nResolved: " ++ show (cmResolved c) ++ "\nRevision: " ++ cmRevision c ++ "\nComment: " ++ cmText c ++ "\nAnswer: " ++ fromMaybe "" (cmAnswer c) ++ "\n---\n"
-                                    ) comments
-          let fullContent = concat commentTexts
+          let fullContent = concatMap formatComment comments
           let total = length comments
           let solved = length (filter cmResolved comments)
           let unsolved = total - solved
@@ -338,14 +295,14 @@ main = do
         editor <- fromMaybe "vim" <$> lookupEnv "EDITOR"
         callProcess editor [tmpPath]
         pasted <- readFile tmpPath
-        parsedCmts <- parsePastedMessage pasted
+        parsedCmts <- PRTools.CommentFormatter.parsePastedMessage pasted
         mState <- loadReviewState reviewFile
         case mState of
           Nothing -> do
             hPutStrLn stderr "No review"
             exitFailure
           Just state -> do
-            let updatedComments = foldl' (\cs pc -> map (\c -> if cmId c == cmId pc then c { cmStatus = cmStatus pc, cmResolved = cmResolved pc, cmAnswer = cmAnswer pc } else c) cs) (rsComments state) parsedCmts
+            let updatedComments = foldl' (\cs pc -> map (\c -> if cmId c == cmId pc then c { cmStatus = cmStatus pc, cmAnswer = cmAnswer pc } else c) cs) (rsComments state) parsedCmts
             mapM_ (\pc -> unless (any (\c -> cmId c == cmId pc) (rsComments state)) $ putStrLn $ "Warning: No matching comment for ID " ++ cmId pc) parsedCmts
             let newState = state { rsComments = updatedComments }
             saveReviewState reviewFile newState
