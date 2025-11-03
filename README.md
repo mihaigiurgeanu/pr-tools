@@ -174,10 +174,10 @@ Interactive code review tool with comment management.
 Subcommands:
 
 ```
-pr-review start [--base-branch BASE]
-pr-review next
-pr-review previous
-pr-review open
+pr-review [--all] start [--base-branch BASE]
+pr-review [--all] next
+pr-review [--all] previous
+pr-review [--all] open
 pr-review files
 pr-review changes
 pr-review comment --file FILE --line LINE --text "COMMENT"
@@ -185,7 +185,7 @@ pr-review resolve --id ID
 pr-review end
 pr-review list
 pr-review send
-pr-review comments [--with-context]
+pr-review comments [--all] [--with-context]
 ```
 
 - `start [--base-branch BASE]`: Start or resume a review session. `--base-branch` overrides configured base.
@@ -199,7 +199,7 @@ pr-review comments [--with-context]
 - `end`: End the review session.
 - `list`: List all review sessions.
 - `send`: Send the review comments to Slack.
-- `comments [--with-context]`: List comments, optionally with code context.
+- `comments [--with-context] [--all]`: List comments,By default, shows unresolved comments. Use `--all` for all, or `--resolved` for only resolved. `--with-context` adds surrounding code.
 
 ### pr-view
 
