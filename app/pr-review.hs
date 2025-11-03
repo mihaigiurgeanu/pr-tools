@@ -29,9 +29,12 @@ import PRTools.CommentRenderer
 import PRTools.CommentFormatter
 import PRTools.PRState (recordPR)
 import PRTools.Slack (sendViaApi, sendViaWebhook)
+import PRTools.ReviewLogic (filterComments)
 
-data Global = Global { gBaseBranch :: Maybe String }
-
+data Global = Global
+  { gBaseBranch :: Maybe String
+  , gShowAll    :: Bool
+  }
 globalParser :: Parser Global
 globalParser = Global
   <$> optional (strOption
@@ -39,7 +42,10 @@ globalParser = Global
      <> metavar "BASE"
      <> help "Override the base branch"
       ))
-
+  <*> switch
+      ( long "all"
+     <> help "Show all comments (including resolved ones) in review files"
+      )
 data Command =
     Start
   | Next
@@ -184,9 +190,9 @@ main = do
           saveReviewState reviewFile newState
           putStrLn "New review started"
           recordPR branch >>= putStrLn
-    Next -> handleNav NavNext reviewFile branch mergeBase Nothing
-    Previous -> handleNav NavPrevious reviewFile branch mergeBase Nothing
-    Open mbFile -> handleNav NavOpen reviewFile branch mergeBase mbFile
+    Next -> handleNav global NavNext reviewFile branch mergeBase Nothing
+    Previous -> handleNav global NavPrevious reviewFile branch mergeBase Nothing
+    Open mbFile -> handleNav global NavOpen reviewFile branch mergeBase mbFile
     Files -> do
       mState <- loadReviewState reviewFile
       case mState of
@@ -308,8 +314,8 @@ main = do
             saveReviewState reviewFile newState
             putStrLn "Imported answers for matching comments"
 
-handleNav :: NavAction -> FilePath -> String -> String -> Maybe String -> IO ()
-handleNav action rf branch mergeBase mbFile = do
+handleNav :: Global -> NavAction -> FilePath -> String -> String -> Maybe String -> IO ()
+handleNav global action rf branch mergeBase mbFile = do
   mState <- loadReviewState rf
   case mState of
     Nothing -> do
@@ -330,7 +336,8 @@ handleNav action rf branch mergeBase mbFile = do
           Nothing -> return state
         let doOpen st = do
               let filePath = rsFiles st !! rsCurrentIndex st
-              let fileCmts = filter (\c -> cmFile c == filePath) (rsComments st)
+              let allFileCmts = filter (\c -> cmFile c == filePath) (rsComments st)
+              let fileCmts = filterComments (gShowAll global) allFileCmts
               newCmts <- openEditor filePath branch mergeBase fileCmts
               mLatest <- loadReviewState rf
               let latest = case mLatest of
