@@ -44,16 +44,21 @@ main = do
     branch <- case optBranch opts of
       Just b -> return b
       Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
+    merger <- fmap trimTrailing (readProcess "git" ["config", "user.name"] "")
     let strategy = optStrategy opts
     state <- loadState
     case Map.lookup branch state of
       Nothing -> do
         hPutStrLn stderr $ "PR " ++ branch ++ " not approved or not tracked"
         exitFailure
-      Just pr -> if null (prApprovals pr) then do
+      Just pr -> if null (approvalHistory pr) then do
         hPutStrLn stderr $ "PR " ++ branch ++ " not approved or not tracked"
         exitFailure
         else do
+          logOutBefore <- readProcess "git" ["log", "--format=%H %s", baseB ++ ".." ++ branch, "--"] ""
+          let commitLinesBefore = lines logOutBefore
+
+          let commits = map (uncurry CommitInfo . (\ln -> (take 40 ln, drop 41 ln))) (filter (not . null) commitLinesBefore)
           callProcess "git" ["checkout", baseB]
           case strategy of
             "fast-forward" -> callProcess "git" ["merge", "--ff-only", branch]
@@ -68,9 +73,14 @@ main = do
             _ -> do
               hPutStrLn stderr "Invalid strategy"
               exitFailure
-          let newState = Map.insert branch (PRState "merged" (prApprovals pr) (prSnapshots pr)) state
-          saveState newState
+          
           currentTime <- getCurrentTime
+          let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
+          
+          let mergeInfo = MergeInfo merger timeStr commits
+          let newState = Map.insert branch (pr { prStatus = "merged", prMergeInfo = Just mergeInfo }) state
+          saveState newState
+          
           let dateStr = formatTime defaultTimeLocale "%Y-%m-%d" currentTime
           withFile "CHANGELOG.md" AppendMode $ \h -> hPutStrLn h $ "\n- Merged " ++ branch ++ " using " ++ strategy ++ " on " ++ dateStr
           mbWebhook <- getSlackWebhook

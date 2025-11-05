@@ -13,6 +13,7 @@ import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import System.Process (readProcess, readProcessWithExitCode)
 import PRTools.Config (getBaseBranch, trimTrailing, getStaleDays)
 import System.Exit (ExitCode(..))
+import Data.List (nub)
 
 data CommitInfo = CommitInfo { ciHash :: String, ciMessage :: String } deriving (Eq, Show)
 
@@ -40,19 +41,120 @@ instance ToJSON PRSnapshot where
     , fromString "commits" .= psCommits ps
     ]
 
-data PRState = PRState { prStatus :: String, prApprovals :: [String], prSnapshots :: [PRSnapshot] } deriving (Eq, Show)
+data ReviewEvent = ReviewEvent
+  { reReviewer :: String
+  , reAction :: String -- "start", "end", "import-answers"
+  , reTimestamp :: String
+  } deriving (Eq, Show)
+
+instance FromJSON ReviewEvent where
+  parseJSON = withObject "ReviewEvent" $ \v -> ReviewEvent
+    <$> v .: fromString "reviewer"
+    <*> v .: fromString "action"
+    <*> v .: fromString "timestamp"
+
+instance ToJSON ReviewEvent where
+  toJSON re = object
+    [ fromString "reviewer" .= reReviewer re
+    , fromString "action" .= reAction re
+    , fromString "timestamp" .= reTimestamp re
+    ]
+
+data FixEvent = FixEvent
+  { feFixer :: String
+  , feAction :: String -- "start", "end"
+  , feTimestamp :: String
+  } deriving (Eq, Show)
+
+instance FromJSON FixEvent where
+  parseJSON = withObject "FixEvent" $ \v -> FixEvent
+    <$> v .: fromString "fixer"
+    <*> v .: fromString "action"
+    <*> v .: fromString "timestamp"
+
+instance ToJSON FixEvent where
+  toJSON fe = object
+    [ fromString "fixer" .= feFixer fe
+    , fromString "action" .= feAction fe
+    , fromString "timestamp" .= feTimestamp fe
+    ]
+
+data Approval = Approval
+  { apApprover :: String
+  , apTimestamp :: String
+  , apCommits :: [CommitInfo]
+  } deriving (Eq, Show)
+
+instance FromJSON Approval where
+    parseJSON = withObject "Approval" $ \v -> Approval
+        <$> v .: fromString "approver"
+        <*> v .: fromString "timestamp"
+        <*> v .:? fromString "commits" .!= []
+
+instance ToJSON Approval where
+    toJSON ap = object
+        [ fromString "approver" .= apApprover ap
+        , fromString "timestamp" .= apTimestamp ap
+        , fromString "commits" .= apCommits ap
+        ]
+
+data MergeInfo = MergeInfo
+  { miMerger :: String
+  , miTimestamp :: String
+  , miCommits :: [CommitInfo]
+  } deriving (Eq, Show)
+
+instance FromJSON MergeInfo where
+  parseJSON = withObject "MergeInfo" $ \v -> MergeInfo
+    <$> v .: fromString "merger"
+    <*> v .: fromString "timestamp"
+    <*> v .: fromString "commits"
+
+instance ToJSON MergeInfo where
+  toJSON mi = object
+    [ fromString "merger" .= miMerger mi
+    , fromString "timestamp" .= miTimestamp mi
+    , fromString "commits" .= miCommits mi
+    ]
+
+data PRState = PRState
+  { prStatus :: String
+  , prSnapshots :: [PRSnapshot]
+  , approvalHistory :: [Approval]
+  , prReviews :: [ReviewEvent]
+  , prFixes :: [FixEvent]
+  , prMergeInfo :: Maybe MergeInfo
+  } deriving (Eq, Show)
 
 instance FromJSON PRState where
-  parseJSON = withObject "PRState" $ \v -> PRState
-    <$> v .: fromString "status"
-    <*> v .:? fromString "approvals" .!= []
-    <*> v .:? fromString "snapshots" .!= []
+  parseJSON = withObject "PRState" $ \v -> do
+    maybeNewApprovals <- v .:? fromString "approval_history"
+    maybeIntermediateApprovals <- v .:? fromString "approvals2"
+    maybeOldApprovals <- v .:? fromString "approvals" .!= []
+
+    let finalApprovals = case maybeNewApprovals of
+                           Just new -> new
+                           Nothing -> case maybeIntermediateApprovals of
+                                        Just intermediate -> intermediate
+                                        Nothing -> map (\name -> Approval name "migrated-approval" []) maybeOldApprovals
+
+    PRState
+      <$> v .: fromString "status"
+      <*> v .:? fromString "snapshots" .!= []
+      <*> pure finalApprovals
+      <*> v .:? fromString "reviews" .!= []
+      <*> v .:? fromString "fixes" .!= []
+      <*> v .:? fromString "merge_info"
+
 
 instance ToJSON PRState where
   toJSON p = object
     [ fromString "status" .= prStatus p
-    , fromString "approvals" .= prApprovals p
     , fromString "snapshots" .= prSnapshots p
+    , fromString "approval_history" .= approvalHistory p
+    , fromString "reviews" .= prReviews p
+    , fromString "fixes" .= prFixes p
+    , fromString "merge_info" .= prMergeInfo p
     ]
 
 statePath :: FilePath
@@ -88,7 +190,7 @@ recordPR branch = do
     (code, out, _) <- readProcessWithExitCode "git" ["rev-parse", "--verify", branch] ""
     if code == ExitSuccess
       then do
-        logOut <- readProcess "git" ["log", "--format=%H %s", base ++ ".." ++ branch] ""
+        logOut <- readProcess "git" ["log", "--format=%H %s", base ++ ".." ++ branch, "--"] ""
         let commitLines = lines logOut
         let cs = map (\ln -> let h = take 40 ln
                                  m = drop 41 ln
@@ -103,14 +205,12 @@ recordPR branch = do
           hPutStrLn stderr $ "Branch " ++ branch ++ " does not exist and is not tracked."
           exitFailure
         else do
-          -- Create new entry and proceed
-          let ex = PRState "open" [] []
+          let ex = PRState "open" [] [] [] [] Nothing
           currentTime <- getCurrentTime
           let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
           let newSnapshot = PRSnapshot timeStr commits
           let updatedSnapshots = prSnapshots ex ++ [newSnapshot]
 
-          -- Stale check (use latest snapshot even if no new one)
           staleDays <- getStaleDays
           let snapsForStale = if null updatedSnapshots then prSnapshots ex else updatedSnapshots
           let isStale = case snapsForStale of
@@ -122,7 +222,6 @@ recordPR branch = do
                                         Nothing -> False
           let statusAfterStale = if isStale && prStatus ex /= "stale" && prStatus ex /= "merged" then "stale" else prStatus ex
 
-          -- Merged check (use latest commits if branch missing)
           let checkCommits = commits
           allMerged <- if null checkCommits then return False else and <$> mapM (\ci -> isAncestor (ciHash ci) base) checkCommits
           let finalStatus = if allMerged && statusAfterStale /= "merged" then "merged" else statusAfterStale
@@ -139,7 +238,6 @@ recordPR branch = do
                              then prSnapshots ex
                              else prSnapshots ex ++ [PRSnapshot timeStr commits]
 
-      -- Stale check (use latest snapshot even if no new one)
       staleDays <- getStaleDays
       let snapsForStale = if null updatedSnapshots then prSnapshots ex else updatedSnapshots
       let isStale = case snapsForStale of
@@ -151,7 +249,6 @@ recordPR branch = do
                                     Nothing -> False
       let statusAfterStale = if isStale && prStatus ex /= "stale" && prStatus ex /= "merged" then "stale" else prStatus ex
 
-      -- Merged check (use latest commits if branch missing)
       let checkCommits = if not (null commits) then commits else if null (prSnapshots ex) then [] else psCommits (last (prSnapshots ex))
       allMerged <- if null checkCommits then return False else and <$> mapM (\ci -> isAncestor (ciHash ci) base) checkCommits
       let finalStatus = if allMerged && statusAfterStale /= "merged" then "merged" else statusAfterStale
@@ -166,3 +263,25 @@ recordPR branch = do
                      else ""
       let extraMsg = if not branchExists then " (branch does not exist; using latest snapshot for checks)" else ""
       return $ msg ++ extraMsg
+
+recordReviewEvent :: String -> String -> String -> IO ()
+recordReviewEvent branch reviewer action = do
+    state <- loadState
+    currentTime <- getCurrentTime
+    let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
+    let newEvent = ReviewEvent reviewer action timeStr
+    let pr = Map.findWithDefault (PRState "open" [] [] [] [] Nothing) branch state
+    let updatedPr = pr { prReviews = prReviews pr ++ [newEvent] }
+    let newState = Map.insert branch updatedPr state
+    saveState newState
+
+recordFixEvent :: String -> String -> String -> IO ()
+recordFixEvent branch fixer action = do
+    state <- loadState
+    currentTime <- getCurrentTime
+    let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
+    let newEvent = FixEvent fixer action timeStr
+    let pr = Map.findWithDefault (PRState "open" [] [] [] [] Nothing) branch state
+    let updatedPr = pr { prFixes = prFixes pr ++ [newEvent] }
+    let newState = Map.insert branch updatedPr state
+    saveState newState
