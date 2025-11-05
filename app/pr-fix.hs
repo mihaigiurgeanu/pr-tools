@@ -24,7 +24,7 @@ import PRTools.Config (getSlackWebhook, trimTrailing, sanitizeBranch, getSlackTo
 import PRTools.ReviewState
 import PRTools.CommentRenderer
 import PRTools.CommentFormatter
-import PRTools.PRState (recordPR)
+import PRTools.PRState (recordPR, recordFixEvent)
 import PRTools.Slack (sendViaApi, sendViaWebhook)
 import PRTools.FixParser
 import Control.Monad (unless)
@@ -215,6 +215,7 @@ main = do
         let uniqueFiles = nub (map cmFile updatedCmts)
         let state = ReviewState "fixing" 0 uniqueFiles updatedCmts branch fixer
         saveReviewState fixFile state
+        recordFixEvent branch fixer "start"
         putStrLn "Fix session started"
         recordPR branch >>= putStrLn
     FComments withCtx showAll showResolved -> do
@@ -259,6 +260,7 @@ main = do
             then do
               let newState = state { rsStatus = "fixed" }
               saveReviewState fixFile newState
+              recordFixEvent branch fixer "end"
               putStrLn "Fix session ended"
             else do
               hPutStrLn stderr "Please commit your changes before ending the fix session."

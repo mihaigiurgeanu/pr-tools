@@ -27,7 +27,7 @@ import PRTools.Config (getBaseBranch, getSlackWebhook, reviewDir, trimTrailing, 
 import PRTools.ReviewState
 import PRTools.CommentRenderer
 import PRTools.CommentFormatter
-import PRTools.PRState (recordPR)
+import PRTools.PRState (recordPR, recordReviewEvent)
 import PRTools.Slack (sendViaApi, sendViaWebhook)
 import PRTools.ReviewLogic (filterComments)
 
@@ -188,6 +188,7 @@ main = do
           let files = lines filesOut
           let newState = ReviewState "active" 0 files [] branch reviewer
           saveReviewState reviewFile newState
+          recordReviewEvent branch reviewer "start"
           putStrLn "New review started"
           recordPR branch >>= putStrLn
     Next -> handleNav global NavNext reviewFile branch mergeBase Nothing
@@ -246,6 +247,7 @@ main = do
         Just state -> do
           let newState = state { rsStatus = "closed" }
           saveReviewState reviewFile newState
+          recordReviewEvent branch reviewer "end"
           putStrLn "Review ended"
     List -> do
       rfs <- glob (reviewDir </> "*.yaml")
@@ -315,6 +317,7 @@ main = do
             mapM_ (\pc -> unless (any (\c -> cmId c == cmId pc) (rsComments state)) $ putStrLn $ "Warning: No matching comment for ID " ++ cmId pc) parsedCmts
             let newState = state { rsComments = updatedComments }
             saveReviewState reviewFile newState
+            recordReviewEvent branch reviewer "import-answers"
             putStrLn "Imported answers for matching comments"
 
 handleNav :: Global -> NavAction -> FilePath -> String -> String -> Maybe String -> IO ()
