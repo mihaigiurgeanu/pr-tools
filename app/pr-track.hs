@@ -1,12 +1,14 @@
 import Control.Monad (when)
 import qualified Data.Map.Strict as Map
-import Data.List (head, intercalate, length, notElem, null, (!!), sortBy)
+import Data.List (head, intercalate, length, notElem, null, (!!), sortBy, nub)
 import Options.Applicative
 import System.Exit (exitFailure, ExitCode(..))
 import System.IO (hPutStrLn, stderr)
 import System.Process (readProcess, readProcessWithExitCode)
 import PRTools.Config (trimTrailing, getBaseBranch)
 import PRTools.PRState
+import Data.Time (getCurrentTime, formatTime)
+import Data.Time.Format (defaultTimeLocale)
 
 data Command =
     Approve { aBranch :: Maybe String, aBy :: String }
@@ -43,9 +45,21 @@ main = do
       branch <- case mbBranch of
         Just b -> return b
         Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
-      let pr = Map.findWithDefault (PRState "open" [] []) branch state
-      let newApprovals = if by `notElem` prApprovals pr then by : prApprovals pr else prApprovals pr
-      let newPr = pr { prStatus = prStatus pr, prApprovals = newApprovals, prSnapshots = prSnapshots pr }
+      let pr = Map.findWithDefault (PRState "open" [] [] [] [] Nothing) branch state
+
+      base <- getBaseBranch
+      logOut <- readProcess "git" ["log", "--format=%H %s", base ++ ".." ++ branch, "--"] ""
+      let commitLines = lines logOut
+
+      let commits = map (uncurry CommitInfo . (\ln -> splitAt 40 ln)) (filter (not . null) commitLines)
+
+
+      currentTime <- getCurrentTime
+      let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
+      let newApproval = Approval by timeStr commits
+      let newApprovalHistory = approvalHistory pr ++ [newApproval]
+
+      let newPr = pr { approvalHistory = newApprovalHistory }
       let newState = Map.insert branch newPr state
       saveState newState
       putStrLn $ "Approved " ++ branch ++ " by " ++ by
@@ -58,7 +72,32 @@ main = do
         Just pr -> do
           putStrLn $ "Status: " ++ prStatus pr
           putStr "Approvals: "
-          putStrLn $ if null (prApprovals pr) then "none" else intercalate ", " (prApprovals pr)
+          putStrLn $ if null (approvalHistory pr) then "none" else intercalate ", " (nub (map apApprover (approvalHistory pr)))
+
+          when (not (null (approvalHistory pr))) $ do
+            putStrLn "Approval History:"
+            mapM_ (\ap -> do
+              putStrLn $ "- Approved by " ++ apApprover ap ++ " at " ++ apTimestamp ap
+              putStrLn "  Approved commits:"
+              mapM_ (\c -> putStrLn $ "  - " ++ take 7 (ciHash c) ++ " " ++ ciMessage c) (apCommits ap)
+              ) (approvalHistory pr)
+
+          when (not (null (prReviews pr))) $ do
+            putStrLn "Review History:"
+            mapM_ (\re -> putStrLn $ "- " ++ reAction re ++ " by " ++ reReviewer re ++ " at " ++ reTimestamp re) (prReviews pr)
+
+          when (not (null (prFixes pr))) $ do
+            putStrLn "Fix History:"
+            mapM_ (\fe -> putStrLn $ "- " ++ feAction fe ++ " by " ++ feFixer fe ++ " at " ++ feTimestamp fe) (prFixes pr)
+
+          case prMergeInfo pr of
+            Just mi -> do
+              putStrLn "Merge Info:"
+              putStrLn $ "- Merged by " ++ miMerger mi ++ " at " ++ miTimestamp mi
+              putStrLn "  Merged commits:"
+              mapM_ (\c -> putStrLn $ "  - " ++ take 7 (ciHash c) ++ " " ++ ciMessage c) (miCommits mi)
+            Nothing -> return ()
+
           if null (prSnapshots pr)
             then putStrLn "No snapshots recorded"
             else do
@@ -98,4 +137,4 @@ main = do
     List -> do
       if Map.null state
         then putStrLn "No PRs tracked"
-        else Map.foldrWithKey (\b pr acc -> putStrLn (b ++ ": " ++ prStatus pr ++ " (approvals: " ++ show (length $ prApprovals pr) ++ ")") >> acc) (return ()) state
+        else Map.foldrWithKey (\b pr acc -> putStrLn (b ++ ": " ++ prStatus pr ++ " (approvals: " ++ show (length $ approvalHistory pr) ++ ")") >> acc) (return ()) state
