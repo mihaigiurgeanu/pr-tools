@@ -265,24 +265,27 @@ main = do
           let comments = rsComments state
           let fullContent = concatMap formatComment comments
           let total = length comments
-          let solved = length (filter cmResolved comments)
-          let unsolved = total - solved
-          let summary = if total == 0 || solved == total
-                        then "Review for " ++ branch ++ " by " ++ reviewer ++ ": Everything is solved! 🎉"
-                        else "Review for " ++ branch ++ " by " ++ reviewer ++ " attached. Total comments: " ++ show total ++ ", Solved: " ++ show solved ++ ", To solve: " ++ show unsolved ++ "."
-          let filename = "review-summary-" ++ sanitizeBranch branch ++ "-" ++ reviewer ++ ".md"
-          mbToken <- getSlackToken
-          mbChannel <- getSlackChannel
-          mbWebhook <- getSlackWebhook
-          case (mbToken, mbChannel) of
-            (Just token, Just channel) -> sendViaApi summary fullContent filename channel token
-            _ -> case mbWebhook of
-              Nothing -> do
-                hPutStrLn stderr "Slack not configured"
-                exitFailure
-              Just webhook -> do
-                let message = summary ++ "\n" ++ fullContent
-                sendViaWebhook webhook message
+          if total == 0
+            then putStrLn "Nothing to send: there are no comments in the review."
+            else do
+              let solved = length (filter cmResolved comments)
+              let unsolved = total - solved
+              let summary = if solved == total
+                            then "Review for " ++ branch ++ " by " ++ reviewer ++ ": Everything is solved! 🎉"
+                            else "Review for " ++ branch ++ " by " ++ reviewer ++ " attached. Total comments: " ++ show total ++ ", Solved: " ++ show solved ++ ", To solve: " ++ show unsolved ++ "."
+              let filename = "review-summary-" ++ sanitizeBranch branch ++ "-" ++ reviewer ++ ".md"
+              mbToken <- getSlackToken
+              mbChannel <- getSlackChannel
+              mbWebhook <- getSlackWebhook
+              case (mbToken, mbChannel) of
+                (Just token, Just channel) -> sendViaApi summary fullContent filename channel token
+                _ -> case mbWebhook of
+                  Nothing -> do
+                    hPutStrLn stderr "Slack not configured"
+                    exitFailure
+                  Just webhook -> do
+                    let message = summary ++ "\n" ++ fullContent
+                    sendViaWebhook webhook message
     Comments withCtx showAll showResolved -> do
       mState <- loadReviewState reviewFile
       case mState of
