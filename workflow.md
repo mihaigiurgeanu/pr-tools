@@ -103,7 +103,7 @@ pr-review comments
 pr-view diff --full
 pr-review resolve --id <comment-id>
 ```
-
+# Please add more details on adding freeform comments when using `pr-review open`, `pr-review next` or `pr-review previous` commands AI!
 **Test the Feature:**
 ```sh
 pytest tests      # Or run your test suite
