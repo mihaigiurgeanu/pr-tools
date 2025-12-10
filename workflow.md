@@ -143,7 +143,11 @@ pr-fix resolve --id ID --status STATUS [--answer "Explanation"]
 ```
 
 **Answering Comments in Editor:**
-When using `pr-fix open`, `next`, or `previous`, the file opens in your editor with review comments inserted. You can change the status (e.g., from `not-solved` to `solved`) directly in the comment block. To provide an answer or explanation, simply add a line starting with `Answer: ` inside the comment block.
+When using `pr-fix open`, `next`, or `previous`, the file opens in your editor with review comments inserted.
+To change the status, edit the `[status: ...]` tag in the header line (ensure it remains lowercase).
+To provide an answer, you can either:
+1. Add `[answer: Your answer]` to the header line (must end with `]`).
+2. Add a line containing `[answer:` in the comment body, followed by your answer on the subsequent lines.
 
 **Prep for Another Review:**
 ```sh
