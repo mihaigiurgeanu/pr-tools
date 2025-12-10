@@ -142,7 +142,8 @@ pr-fix previous
 pr-fix resolve --id ID --status STATUS [--answer "Explanation"]
 ```
 
-# Add more details about answering to comments when using `pr-fix open`, `next` and `previous`. AI!
+**Answering Comments in Editor:**
+When using `pr-fix open`, `next`, or `previous`, the file opens in your editor with review comments inserted. You can change the status (e.g., from `not-solved` to `solved`) directly in the comment block. To provide an answer or explanation, simply add a line starting with `Answer: ` inside the comment block.
 
 **Prep for Another Review:**
 ```sh
