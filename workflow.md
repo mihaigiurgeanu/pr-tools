@@ -171,6 +171,9 @@ pr-fix send     # Post fix summary to Slack
 ## 6. Merge Pull Request
 
 **Gather Approvals:**
+When a PR is approved by a reviewer, the reviewer will notify you on Slack. You should record
+his approval:
+
 ```sh
 pr-track approve --by [ReviewerName]
 pr-track status [BRANCH]
