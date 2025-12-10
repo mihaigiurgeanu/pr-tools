@@ -168,6 +168,8 @@ pr-fix send     # Post fix summary to Slack
 
 ---
 
+# add a chapter for review actions of the reviewer after a fix AI!
+
 ## 6. Merge Pull Request
 
 **Gather Approvals:**
