@@ -203,6 +203,11 @@ pr-review resolve --id ID
 ```
 
 **Finalize:**
+End the review session:
+```sh
+pr-review end
+```
+
 If all comments are resolved:
 - Notify the author on Slack (e.g., "Approved!").
 
