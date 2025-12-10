@@ -142,6 +142,8 @@ pr-fix previous
 pr-fix resolve --id ID --status STATUS [--answer "Explanation"]
 ```
 
+# Add more details about answering to comments when using `pr-fix open`, `next` and `previous`. AI!
+
 **Prep for Another Review:**
 ```sh
 git status    # Should be clean
