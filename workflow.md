@@ -103,7 +103,10 @@ pr-review comments
 pr-view diff --full
 pr-review resolve --id <comment-id>
 ```
-# Please add more details on adding freeform comments when using `pr-review open`, `pr-review next` or `pr-review previous` commands AI!
+
+**Adding Comments in Editor:**
+When using `pr-review open`, `next`, or `previous`, the file opens in your configured editor. To add a comment, simply insert new lines with your feedback anywhere in the file. When you save and exit, the tool detects these added lines as comments attached to the surrounding code.
+
 **Test the Feature:**
 ```sh
 pytest tests      # Or run your test suite
