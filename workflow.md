@@ -189,6 +189,11 @@ Check if the reported issues are resolved:
 ```sh
 pr-review comments        # See updated statuses and answers
 pr-view diff              # Check the new code changes
+pr-review files
+pr-review open            # Inspect changes, add freeform comments
+pr-review next            # Move to next file
+pr-review previous        # Move to previous file
+pr-review comment --file FILE --line N --text "Comment"    # Add comments directly
 ```
 
 **Resolve Comments:**
@@ -202,7 +207,6 @@ If all comments are resolved:
 - Notify the author on Slack (e.g., "Approved!").
 
 If issues remain:
-- Add new comments or leave old ones unresolved.
 - Run `pr-review send` to post the remaining feedback to Slack.
 
 ---
