@@ -168,9 +168,46 @@ pr-fix send     # Post fix summary to Slack
 
 ---
 
-# add a chapter for review actions of the reviewer after a fix AI!
+## 6. Review the Fixes
 
-## 6. Merge Pull Request
+**Update Local Branch:**
+```sh
+git fetch
+git checkout feature/descriptive-name
+git pull
+```
+
+**Import Fix Explanations:**
+If the developer sent a fix summary to Slack, you can import their answers and status updates into your review session:
+```sh
+pr-review start           # Resume your review session
+pr-review import-answers  # Paste the fix summary from Slack
+```
+
+**Verify Fixes:**
+Check if the reported issues are resolved:
+```sh
+pr-review comments        # See updated statuses and answers
+pr-view diff              # Check the new code changes
+```
+
+**Resolve Comments:**
+If a comment is satisfactorily addressed:
+```sh
+pr-review resolve --id ID
+```
+
+**Finalize:**
+If all comments are resolved:
+- Notify the author on Slack (e.g., "Approved!").
+
+If issues remain:
+- Add new comments or leave old ones unresolved.
+- Run `pr-review send` to post the remaining feedback to Slack.
+
+---
+
+## 7. Merge Pull Request
 
 **Gather Approvals:**
 When a PR is approved by a reviewer, the reviewer will notify you on Slack. You should record
