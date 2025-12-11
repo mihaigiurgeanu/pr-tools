@@ -26,7 +26,7 @@ import PRTools.CommentRenderer
 import PRTools.CommentFormatter
 import PRTools.PRState (recordPR, recordFixEvent)
 import PRTools.Slack (sendViaApi, sendViaWebhook)
-
+import PRTools.FixParser
 import Control.Monad (unless)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
@@ -146,39 +146,6 @@ parseEditedFix lines cmts = go lines [] cmts
               afterRest = drop skipEnd rest
           in go afterRest accLines updated  -- Skip block, continue with rest
       | otherwise = go lns (ln : accLines) accCmts
-
-    parseBlock :: [String] -> [Cmt] -> [Cmt]  -- Returns only updated cmts
-    parseBlock (header:body) accCmts =
-      let cidStart = length ("-- REVIEW COMMENT BEGIN [" :: String)
-          cidEnd = findIndex (== ']') (drop cidStart header)  -- Safer than maybe
-          cid = case cidEnd of
-                  Just end -> take 8 (drop cidStart header)
-                  Nothing -> ""
-          afterCid = maybe "" (\end -> drop (cidStart + end + 1) header) cidEnd  -- +1 for ]
-          statusStart = findSub "[status:" afterCid
-          afterStatusLabel = maybe afterCid (\start -> drop (start + 8) afterCid) statusStart
-          statusEnd = findSub "]" afterStatusLabel
-          status = maybe "not-solved" (\end -> take end afterStatusLabel) statusEnd
-          afterStatus = maybe afterStatusLabel (\end -> drop (end + 1) afterStatusLabel) statusEnd
-          answerStart = findSub "[answer:" afterStatus
-          headerAnswer = maybe Nothing (\start -> Just (drop (start + 8) afterStatus)) answerStart  -- Up to end of header
-          -- Body: Split comment text and any multi-line answer
-          (textLines, answerLines) = span (not . ("[answer:" `isPrefixOf`)) body
-          text = intercalate "\n" (map trim textLines)
-          bodyAnswer = if null answerLines then Nothing else Just (intercalate "\n" (map trim (tail answerLines)))  -- Skip [answer: line if present
-          finalAnswer = case (headerAnswer, bodyAnswer) of
-                          (Just ha, Just ba) -> Just (ha ++ "\n" ++ ba)  -- Combine if both
-                          (Just ha, Nothing) -> Just ha
-                          (Nothing, Just ba) -> Just ba
-                          _ -> Nothing
-          updated = map (\c -> if cmId c == cid then c { cmText = if null text then cmText c else text, cmStatus = status, cmAnswer = finalAnswer } else c) accCmts
-      in updated
-    parseBlock _ accCmts = accCmts  -- Invalid block, skip
-
-    findSub :: String -> String -> Maybe Int
-    findSub sub str = go 0 str
-      where go _ [] = Nothing
-            go i xs = if sub `isPrefixOf` xs then Just i else go (i+1) (tail xs)
 
 data NavAction = NavNext | NavPrevious | NavOpen
 
