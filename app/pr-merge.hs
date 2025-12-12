@@ -6,7 +6,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import Data.CaseInsensitive (mk)
 import qualified Data.Map.Strict as Map
-import Data.List (head, length, null, (!!))
+import Data.List (head, length, null, (!!), notElem)
 import Data.Time (formatTime, getCurrentTime)
 import Data.Time.Format (defaultTimeLocale)
 import Network.HTTP.Client (RequestBody(RequestBodyLBS), httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseStatus)
@@ -55,48 +55,58 @@ main = do
         hPutStrLn stderr $ "PR " ++ branch ++ " not approved or not tracked"
         exitFailure
         else do
-          logOutBefore <- readProcess "git" ["log", "--format=%H %s", baseB ++ ".." ++ branch, "--"] ""
-          let commitLinesBefore = lines logOutBefore
+          -- Stale check
+          currentTip <- fmap trimTrailing (readProcess "git" ["rev-parse", branch] "")
+          let latestApproval = last (approvalHistory pr)
+          let approvedHashes = map ciHash (apCommits latestApproval)
+          
+          if currentTip `notElem` approvedHashes
+            then do
+               hPutStrLn stderr $ "PR " ++ branch ++ " has new commits since approval. Please request re-approval."
+               exitFailure
+            else do
+               logOutBefore <- readProcess "git" ["log", "--format=%H %s", baseB ++ ".." ++ branch, "--"] ""
+               let commitLinesBefore = lines logOutBefore
 
-          let commits = map (uncurry CommitInfo . (\ln -> (take 40 ln, drop 41 ln))) (filter (not . null) commitLinesBefore)
-          callProcess "git" ["checkout", baseB]
-          case strategy of
-            "fast-forward" -> callProcess "git" ["merge", "--ff-only", branch]
-            "squash" -> do
-              callProcess "git" ["merge", "--squash", branch]
-              callProcess "git" ["commit", "--message", "Squashed merge of " ++ branch]
-            "rebase" -> do
-              callProcess "git" ["checkout", branch]
-              callProcess "git" ["rebase", baseB]
-              callProcess "git" ["checkout", baseB]
-              callProcess "git" ["merge", "--ff-only", branch]
-            _ -> do
-              hPutStrLn stderr "Invalid strategy"
-              exitFailure
-          
-          currentTime <- getCurrentTime
-          let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
-          
-          let mergeInfo = MergeInfo merger timeStr commits
-          let newState = Map.insert branch (pr { prStatus = "merged", prMergeInfo = Just mergeInfo }) state
-          saveState newState
-          
-          let dateStr = formatTime defaultTimeLocale "%Y-%m-%d" currentTime
-          withFile "CHANGELOG.md" AppendMode $ \h -> hPutStrLn h $ "\n- Merged " ++ branch ++ " using " ++ strategy ++ " on " ++ dateStr
-          mbWebhook <- getSlackWebhook
-          case mbWebhook of
-            Nothing -> return ()
-            Just webhook -> do
-              manager <- newManager tlsManagerSettings
-              initReq <- parseRequest webhook
-              let req = initReq
-                    { method = "POST"
-                    , requestBody = RequestBodyLBS $ encode $ object ["text" .= ("PR " ++ branch ++ " merged using " ++ strategy)]
-                    , requestHeaders = [(mk "Content-Type", "application/json")]
-                    }
-              response <- httpLbs req manager
-              return ()
-          putStrLn $ "Merged " ++ branch ++ " using " ++ strategy
+               let commits = map (uncurry CommitInfo . (\ln -> (take 40 ln, drop 41 ln))) (filter (not . null) commitLinesBefore)
+               callProcess "git" ["checkout", baseB]
+               case strategy of
+                 "fast-forward" -> callProcess "git" ["merge", "--ff-only", branch]
+                 "squash" -> do
+                   callProcess "git" ["merge", "--squash", branch]
+                   callProcess "git" ["commit", "--message", "Squashed merge of " ++ branch]
+                 "rebase" -> do
+                   callProcess "git" ["checkout", branch]
+                   callProcess "git" ["rebase", baseB]
+                   callProcess "git" ["checkout", baseB]
+                   callProcess "git" ["merge", "--ff-only", branch]
+                 _ -> do
+                   hPutStrLn stderr "Invalid strategy"
+                   exitFailure
+               
+               currentTime <- getCurrentTime
+               let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
+               
+               let mergeInfo = MergeInfo merger timeStr commits
+               let newState = Map.insert branch (pr { prStatus = "merged", prMergeInfo = Just mergeInfo }) state
+               saveState newState
+               
+               let dateStr = formatTime defaultTimeLocale "%Y-%m-%d" currentTime
+               withFile "CHANGELOG.md" AppendMode $ \h -> hPutStrLn h $ "\n- Merged " ++ branch ++ " using " ++ strategy ++ " on " ++ dateStr
+               mbWebhook <- getSlackWebhook
+               case mbWebhook of
+                 Nothing -> return ()
+                 Just webhook -> do
+                   manager <- newManager tlsManagerSettings
+                   initReq <- parseRequest webhook
+                   let req = initReq
+                         { method = "POST"
+                         , requestBody = RequestBodyLBS $ encode $ object ["text" .= ("PR " ++ branch ++ " merged using " ++ strategy)]
+                         , requestHeaders = [(mk "Content-Type", "application/json")]
+                         }
+                   response <- httpLbs req manager
+                   return ()
+               putStrLn $ "Merged " ++ branch ++ " using " ++ strategy
 
 helpText :: String
 helpText = unlines

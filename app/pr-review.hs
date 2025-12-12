@@ -58,6 +58,7 @@ data Command =
   | End
   | List
   | Send
+  | Approve
   | Comments Bool Bool Bool
   | ImportAnswers
 
@@ -76,6 +77,7 @@ commandParser = subparser
  <> command "end" (info (pure End <**> helper) (progDesc "End review"))
  <> command "list" (info (pure List <**> helper) (progDesc "List reviews"))
  <> command "send" (info (pure Send <**> helper) (progDesc "Send review to Slack"))
+ <> command "approve" (info (pure Approve <**> helper) (progDesc "Approve the PR (must have no unresolved comments)"))
  <> command "comments" (info (commentsParser <**> helper) (progDesc "List all comments (compact by default)"))
  <> command "import-answers" (info (pure ImportAnswers <**> helper) (progDesc "Import answers from fix summary"))
   )
@@ -288,6 +290,29 @@ main = do
                   Just webhook -> do
                     let message = summary ++ "\n" ++ fullContent
                     sendViaWebhook webhook message
+    Approve -> do
+      mState <- loadReviewState reviewFile
+      case mState of
+        Nothing -> do
+          hPutStrLn stderr "No active review"
+          exitFailure
+        Just state -> do
+          let comments = rsComments state
+          let unresolved = filter (not . cmResolved) comments
+          if not (null unresolved) then do
+            hPutStrLn stderr $ "Cannot approve: There are " ++ show (length unresolved) ++ " unresolved comments."
+            exitFailure
+          else do
+            currentHash <- trimTrailing <$> readProcess "git" ["rev-parse", "HEAD"] ""
+            putStrLn $ "PR " ++ branch ++ " approved at commit " ++ currentHash
+            
+            mbWebhook <- getSlackWebhook
+            case mbWebhook of
+              Nothing -> putStrLn "Slack webhook not configured, skipping notification."
+              Just webhook -> do
+                let trackCmd = "pr-track approve " ++ branch ++ " --by \"" ++ reviewer ++ "\" --commit " ++ currentHash
+                let message = "✅ PR " ++ branch ++ " approved by " ++ reviewer ++ " at commit " ++ currentHash ++ "\nRun this to track approval:\n`" ++ trackCmd ++ "`"
+                sendViaWebhook webhook message
     Comments withCtx showAll showResolved -> do
       mState <- loadReviewState reviewFile
       case mState of
