@@ -11,7 +11,7 @@ import Data.Time (getCurrentTime, formatTime)
 import Data.Time.Format (defaultTimeLocale)
 
 data Command =
-    Approve { aBranch :: Maybe String, aBy :: String }
+    Approve { aBranch :: Maybe String, aBy :: String, aCommit :: Maybe String }
   | Status { sBranch :: Maybe String }
   | Record { rBranch :: Maybe String }
   | List
@@ -31,6 +31,7 @@ commandParser = subparser
     approveParser = Approve
       <$> optional (strArgument (metavar "BRANCH" <> help "Branch to approve (default: current)"))
       <*> strOption (long "by" <> metavar "NAME" <> help "Approver name")
+      <*> optional (strOption (long "commit" <> metavar "HASH" <> help "Commit hash being approved"))
     statusParser = Status
       <$> optional (strArgument (metavar "BRANCH" <> help "Branch to check (default: current)"))
     recordParser = Record
@@ -41,17 +42,22 @@ main = do
   cmd <- execParser $ info (commandParser <**> helper) idm
   state <- loadState
   case cmd of
-    Approve mbBranch by -> do
+    Approve mbBranch by mbCommit -> do
       branch <- case mbBranch of
         Just b -> return b
         Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
+      
+      tip <- case mbCommit of
+        Just c -> return c
+        Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", branch] "")
+
       let pr = Map.findWithDefault (PRState "open" [] [] [] [] Nothing) branch state
 
       base <- getBaseBranch
-      logOut <- readProcess "git" ["log", "--format=%H %s", base ++ ".." ++ branch, "--"] ""
+      logOut <- readProcess "git" ["log", "--format=%H %s", base ++ ".." ++ tip, "--"] ""
       let commitLines = lines logOut
 
-      let commits = map (uncurry CommitInfo . (\ln -> splitAt 40 ln)) (filter (not . null) commitLines)
+      let commits = map (uncurry CommitInfo . (\ln -> (take 40 ln, drop 41 ln))) (filter (not . null) commitLines)
 
 
       currentTime <- getCurrentTime
