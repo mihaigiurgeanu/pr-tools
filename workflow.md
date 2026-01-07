@@ -208,8 +208,10 @@ End the review session:
 pr-review end
 ```
 
-If all comments are resolved:
-- Notify the author on Slack (e.g., "Approved!").
+If all comments are resolved, approve the PR:
+```
+pr-review approve
+```
 
 If issues remain:
 - Run `pr-review send` to post the remaining feedback to Slack.
@@ -223,7 +225,7 @@ When a PR is approved by a reviewer, the reviewer will notify you on Slack. You 
 his approval:
 
 ```sh
-pr-track approve --by [ReviewerName]
+pr-track approve --by [ReviewerName] --commit [CommitHash]
 pr-track status [BRANCH]
 pr-track list
 ```
@@ -242,6 +244,7 @@ git log --oneline master..origin/feature/descriptive-name
 git checkout feature/descriptive-name && git pull
 git rebase master
 pr-merge          # Use appropriate strategy if needed
+git commit -a -m "Update CHANGELOG"
 git push
 ```
 
@@ -249,6 +252,17 @@ git push
 ```sh
 git push origin --delete feature/descriptive-name
 git branch -d feature/descriptive-name
+```
+
+**Reviewer's side clean up:**
+```sh
+git checkout master
+git pull
+git checkout feature/descriptive-name
+pr-track update
+git checkout master
+git branch -d feature/descriptive-name
+git fetch --prune
 ```
 
 ---
@@ -271,6 +285,11 @@ git reset --hard HEAD~1  # Discard changes
 git add .
 git commit -m "Address feedback"
 git push origin feature/branch-name
+```
+
+**Cleanup remote tracking branches:**
+```sh
+git fetch --prune
 ```
 
 ---
