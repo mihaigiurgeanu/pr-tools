@@ -51,23 +51,7 @@ main = do
         Just c -> return c
         Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", branch] "")
 
-      let pr = Map.findWithDefault (PRState "open" [] [] [] [] Nothing) branch state
-
-      base <- getBaseBranch
-      logOut <- readProcess "git" ["log", "--format=%H %s", base ++ ".." ++ tip, "--"] ""
-      let commitLines = lines logOut
-
-      let commits = map (uncurry CommitInfo . (\ln -> (take 40 ln, drop 41 ln))) (filter (not . null) commitLines)
-
-
-      currentTime <- getCurrentTime
-      let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
-      let newApproval = Approval by timeStr commits
-      let newApprovalHistory = approvalHistory pr ++ [newApproval]
-
-      let newPr = pr { approvalHistory = newApprovalHistory }
-      let newState = Map.insert branch newPr state
-      saveState newState
+      recordApproval branch by tip
       putStrLn $ "Approved " ++ branch ++ " by " ++ by
     Status mbBranch -> do
       branch <- case mbBranch of

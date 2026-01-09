@@ -285,3 +285,24 @@ recordFixEvent branch fixer action = do
     let updatedPr = pr { prFixes = prFixes pr ++ [newEvent] }
     let newState = Map.insert branch updatedPr state
     saveState newState
+
+recordApproval :: String -> String -> String -> IO ()
+recordApproval branch approver commitHash = do
+  state <- loadState
+  let pr = Map.findWithDefault (PRState "open" [] [] [] [] Nothing) branch state
+  
+  base <- getBaseBranch
+  logOut <- readProcess "git" ["log", "--format=%H %s", base ++ ".." ++ commitHash, "--"] ""
+  let commitLines = lines logOut
+  let commits = map (\ln -> let h = take 40 ln
+                                m = drop 41 ln
+                            in CommitInfo h m) (filter (not . null) commitLines)
+
+  currentTime <- getCurrentTime
+  let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
+  let newApproval = Approval approver timeStr commits
+  let newApprovalHistory = approvalHistory pr ++ [newApproval]
+  
+  let newPr = pr { approvalHistory = newApprovalHistory }
+  let newState = Map.insert branch newPr state
+  saveState newState

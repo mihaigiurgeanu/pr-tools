@@ -27,7 +27,7 @@ import PRTools.Config (getBaseBranch, getSlackWebhook, reviewDir, trimTrailing, 
 import PRTools.ReviewState
 import PRTools.CommentRenderer
 import PRTools.CommentFormatter
-import PRTools.PRState (recordPR, recordReviewEvent)
+import PRTools.PRState (recordPR, recordReviewEvent, recordApproval)
 import PRTools.Slack (sendViaApi, sendViaWebhook)
 import PRTools.ReviewLogic (filterComments)
 
@@ -304,6 +304,7 @@ main = do
             exitFailure
           else do
             currentHash <- trimTrailing <$> readProcess "git" ["rev-parse", "HEAD"] ""
+            recordApproval branch reviewer currentHash
             putStrLn $ "PR " ++ branch ++ " approved at commit " ++ currentHash
             
             mbWebhook <- getSlackWebhook
