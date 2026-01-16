@@ -6,7 +6,7 @@ module PRTools.CommentRenderer where
 
 import Control.Exception (catch, IOException)
 import Data.Algorithm.Diff (PolyDiff(..), getGroupedDiff)
-import Data.List (foldl', sortBy, isPrefixOf, intercalate, dropWhile, span)
+import Data.List (foldl', sortBy, isPrefixOf, intercalate, dropWhile, span, isInfixOf)
 import Data.List.Extra (trim, splitOn)
 import System.IO (hPutStrLn, stderr)
 import System.Process (readProcess)
@@ -16,14 +16,30 @@ import Data.Ord (comparing)
 import PRTools.Config (trimTrailing)
 import Control.Arrow (first)
 
+stripCR :: String -> String
+stripCR s = case reverse s of
+  '\r' : xs -> reverse xs
+  _ -> s
+
+normalizeLines :: String -> [String]
+normalizeLines = map stripCR . lines
+
+detectEol :: String -> String
+detectEol content = if "\r\n" `isInfixOf` content then "\r\n" else "\n"
+
+joinLines :: String -> [String] -> String
+joinLines eol ls = case ls of
+  [] -> ""
+  _ -> intercalate eol ls ++ eol
+
 -- Remap a line number from old revision to current
 remapLine :: String -> String -> String -> Int -> IO Int
 remapLine revision file branch target = do
   oldContent <- catch (readProcess "git" ["show", revision ++ ":" ++ file] "")
                       (\e -> do hPutStrLn stderr $ "Warning: " ++ show (e :: IOException); return "")
   currentContent <- readProcess "git" ["show", branch ++ ":" ++ file] ""
-  let oldLines = lines oldContent
-  let currentLines = lines currentContent
+  let oldLines = normalizeLines oldContent
+  let currentLines = normalizeLines currentContent
   let diffs = getGroupedDiff oldLines currentLines
   return $ go diffs 1 1 target
   where
@@ -49,8 +65,9 @@ renderForReview mergeBase branch file cmts = do
   featureContent <- catch (readProcess "git" ["show", branch ++ ":" ++ file] "")
                           (\e -> do hPutStrLn stderr $ "Warning: " ++ show (e :: IOException); return "")
   currentRev <- trimTrailing <$> readProcess "git" ["rev-parse", branch] ""
-  let baseLines = lines baseContent
-  let featureLines = lines featureContent
+  let eol = detectEol (if null featureContent then baseContent else featureContent)
+  let baseLines = normalizeLines baseContent
+  let featureLines = normalizeLines featureContent
   adjustedCmts <- mapM (\c -> do
     newLine <- if cmRevision c == currentRev then return (cmLine c) else remapLine (cmRevision c) (cmFile c) branch (cmLine c)
     return c { cmLine = newLine }
@@ -59,7 +76,7 @@ renderForReview mergeBase branch file cmts = do
   let groups = getGroupedDiff baseLines featureLines
   let conflictLines = recBuild 1 groups
   let augmented = insertComments conflictLines sortedCmts
-  return $ unlines augmented
+  return $ joinLines eol augmented
   where
     annotateFeatureLines :: Int -> [String] -> [(Maybe Int, String)]
     annotateFeatureLines n ls = let feature_lines = zip [n ..] ls
@@ -105,14 +122,15 @@ renderForFix branch file cmts = do
   content <- catch (readProcess "git" ["show", branch ++ ":" ++ file] "")
                    (\e -> do hPutStrLn stderr $ "Warning: " ++ show (e :: IOException); return "")
   currentRev <- trimTrailing <$> readProcess "git" ["rev-parse", branch] ""
-  let fileLines = lines content
+  let eol = detectEol content
+  let fileLines = normalizeLines content
   adjustedCmts <- mapM (\c -> do
     newLine <- if cmRevision c == currentRev then return (cmLine c) else remapLine (cmRevision c) (cmFile c) branch (cmLine c)
     return c { cmLine = newLine }
     ) cmts
   let sortedCmts = sortBy (comparing cmLine) adjustedCmts
   let (augmentedLines, _) = foldl' insertComment (fileLines, 0) sortedCmts
-  return $ unlines augmentedLines
+  return $ joinLines eol augmentedLines
   where
     insertComment :: ([String], Int) -> Cmt -> ([String], Int)
     insertComment (acc, offset) c =
@@ -147,4 +165,3 @@ displayComments branch cmts withCtx = do
     mapM_ (\c -> putStrLn $ cmFile c ++ ":" ++ show (cmLine c) ++ " [" ++ cmId c ++ "][" ++ (if cmResolved c then "Resolved" else "") ++ "]\n\t" ++ replace '\n' " | " (trim (cmText c)) ++ " [" ++ cmStatus c ++ "]" ++ maybe "" (\a -> " answer: " ++ replace '\n' " | " (trim a)) (cmAnswer c) ++ "\n") cmts
   where
     replace old new s = intercalate new (splitOn [old] s)
-

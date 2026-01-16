@@ -121,13 +121,14 @@ handleOpen fixFile branch = do
                 if editedContent == augmentedContent then do
                   putStrLn "No changes detected; skipping overwrite."
                 else do
-                  let editedLines = lines editedContent
+                  let editedLines = normalizeLines editedContent
                   mLatest <- loadReviewState fixFile
                   let latest = case mLatest of
                         Just l -> l
                         Nothing -> state
                   let (cleanLines, updatedCmts) = parseEditedFix editedLines (rsComments latest)
-                  writeFile file (unlines cleanLines)
+                  let eol = detectEol editedContent
+                  writeFile file (joinLines eol cleanLines)
                   currentRev <- trimTrailing <$> readProcess "git" ["rev-parse", "HEAD"] ""
                   let updatedWithRev = map (\c -> c { cmRevision = currentRev }) updatedCmts
                   let newState = latest { rsComments = updatedWithRev }

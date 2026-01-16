@@ -115,10 +115,10 @@ openEditor filePath branch mergeBase existingCmts = do
     editor <- fromMaybe "vim" <$> lookupEnv "EDITOR"
     callProcess editor [tmpPath]
     editedContent <- readFile tmpPath
-    let editedLines = lines editedContent
+    let editedLines = normalizeLines editedContent
     let editedFeature = extractEditedFeature editedLines  -- Reuse existing extraction
     featureContent <- readProcess "git" ["show", branch ++ ":" ++ filePath] ""
-    let featureLines = lines featureContent
+    let featureLines = normalizeLines featureContent
     let newPairs = extractComments featureLines editedFeature  -- Reuse
     currentRev <- trimTrailing <$> readProcess "git" ["rev-parse", "HEAD"] ""
     mapM (\(l, t) -> do
