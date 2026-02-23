@@ -130,6 +130,7 @@ executable pr-review
   build-depends:    pr-tools
                   , aeson >= 2.2.3 && < 2.3
                   , bytestring >= 0.11.5 && < 0.12
+                  , containers >= 0.6.7 && < 0.7
                   , Diff >= 1.0.2 && < 1.1
                   , directory >= 1.3.8 && < 1.4
                   , filepath >= 1.4.301 && < 1.5

@@ -8,6 +8,7 @@ import Data.Algorithm.Diff (PolyDiff(..), getGroupedDiff)
 import Data.Char (isSpace)
 import Data.List (any, filter, findIndex, foldl', intercalate, zipWith, isPrefixOf)
 import Data.List.Split (splitOn)
+import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, catMaybes, listToMaybe)
 import Data.UUID (toString)
 import Data.UUID.V4 (nextRandom)
@@ -27,7 +28,7 @@ import PRTools.Config (getBaseBranch, getSlackWebhook, reviewDir, trimTrailing, 
 import PRTools.ReviewState
 import PRTools.CommentRenderer
 import PRTools.CommentFormatter
-import PRTools.PRState (recordPR, recordReviewEvent, recordReviewEventWithHash, recordApproval)
+import PRTools.PRState (recordPR, recordReviewEvent, recordReviewEventWithHash, recordApproval, recordReviewEventWithCommitHashes, loadState, prSnapshots, psCommits, ciHash)
 import PRTools.ContentHash (generatePatchHash)
 import PRTools.Slack (sendViaApi, sendViaWebhook)
 import PRTools.ReviewLogic (filterComments)
@@ -252,12 +253,30 @@ main = do
           let newState = state { rsStatus = "closed" }
           saveReviewState reviewFile newState
           
-          -- Generate content hash for the reviewed content
-          currentCommit <- trimTrailing <$> readProcess "git" ["rev-parse", branch] ""
-          contentHash <- generatePatchHash baseB currentCommit
-          
-          recordReviewEventWithHash branch reviewer "end" (Just contentHash)
-          putStrLn "Review ended"
+          -- Generate content hashes for each commit in the latest snapshot
+          prState <- loadState
+          case Map.lookup branch prState of
+            Nothing -> do
+              hPutStrLn stderr "No PR state found"
+              exitFailure
+            Just pr -> do
+              if null (prSnapshots pr)
+                then do
+                  hPutStrLn stderr "No snapshots found for this PR"
+                  exitFailure
+                else do
+                  let latestSnapshot = last (prSnapshots pr)
+                  let commits = psCommits latestSnapshot
+                  
+                  -- Generate content hash for each commit
+                  commitHashes <- mapM (\ci -> do
+                    contentHash <- generatePatchHash baseB (ciHash ci)
+                    return (ciHash ci, contentHash)
+                    ) commits
+                  
+                  let commitHashMap = Map.fromList commitHashes
+                  recordReviewEventWithCommitHashes branch reviewer "end" commitHashMap
+                  putStrLn $ "Review ended - recorded review for " ++ show (length commits) ++ " commits"
     List -> do
       rfs <- glob (reviewDir </> "*.yaml")
       mapM_ (\rf -> do

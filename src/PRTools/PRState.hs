@@ -46,7 +46,8 @@ data ReviewEvent = ReviewEvent
   { reReviewer :: String
   , reAction :: String -- "start", "end", "import-answers"
   , reTimestamp :: String
-  , reContentHash :: Maybe String -- Content hash for "end" actions
+  , reContentHash :: Maybe String -- Content hash for "end" actions (legacy)
+  , reReviewedCommits :: Maybe (Map.Map String String) -- commit hash -> content hash for that commit
   } deriving (Eq, Show)
 
 instance FromJSON ReviewEvent where
@@ -55,6 +56,7 @@ instance FromJSON ReviewEvent where
     <*> v .: fromString "action"
     <*> v .: fromString "timestamp"
     <*> v .:? fromString "content_hash"
+    <*> v .:? fromString "reviewed_commits"
 
 instance ToJSON ReviewEvent where
   toJSON re = object
@@ -62,6 +64,7 @@ instance ToJSON ReviewEvent where
     , fromString "action" .= reAction re
     , fromString "timestamp" .= reTimestamp re
     , fromString "content_hash" .= reContentHash re
+    , fromString "reviewed_commits" .= reReviewedCommits re
     ]
 
 data FixEvent = FixEvent
@@ -276,7 +279,7 @@ recordReviewEvent branch reviewer action = do
     state <- loadState
     currentTime <- getCurrentTime
     let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
-    let newEvent = ReviewEvent reviewer action timeStr Nothing
+    let newEvent = ReviewEvent reviewer action timeStr Nothing Nothing
     let pr = Map.findWithDefault (PRState "open" [] [] [] [] Nothing) branch state
     let updatedPr = pr { prReviews = prReviews pr ++ [newEvent] }
     let newState = Map.insert branch updatedPr state
@@ -288,7 +291,19 @@ recordReviewEventWithHash branch reviewer action mbContentHash = do
     state <- loadState
     currentTime <- getCurrentTime
     let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
-    let newEvent = ReviewEvent reviewer action timeStr mbContentHash
+    let newEvent = ReviewEvent reviewer action timeStr mbContentHash Nothing
+    let pr = Map.findWithDefault (PRState "open" [] [] [] [] Nothing) branch state
+    let updatedPr = pr { prReviews = prReviews pr ++ [newEvent] }
+    let newState = Map.insert branch updatedPr state
+    saveState newState
+
+-- Record review event with individual commit hashes (for "end" actions)
+recordReviewEventWithCommitHashes :: String -> String -> String -> Map.Map String String -> IO ()
+recordReviewEventWithCommitHashes branch reviewer action commitHashes = do
+    state <- loadState
+    currentTime <- getCurrentTime
+    let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
+    let newEvent = ReviewEvent reviewer action timeStr Nothing (Just commitHashes)
     let pr = Map.findWithDefault (PRState "open" [] [] [] [] Nothing) branch state
     let updatedPr = pr { prReviews = prReviews pr ++ [newEvent] }
     let newState = Map.insert branch updatedPr state
@@ -313,22 +328,26 @@ checkValidApprovals branch = do
     Nothing -> return []
     Just pr -> do
       base <- getBaseBranch
-      currentCommit <- trimTrailing <$> readProcess "git" ["rev-parse", branch] ""
-      currentContentHash <- generatePatchHash base currentCommit
-      
-      let approvals = approvalHistory pr
-      validApprovals <- filterM (\approval -> do
-        -- Check if approval is valid by commit ID or content hash
-        let commitValid = any (\ci -> ciHash ci == currentCommit) (apCommits approval)
-        let contentValid = case apContentHash approval of
-              Just hash -> hash == currentContentHash
-              Nothing -> False
-        -- For debugging, let's see what's happening
-        -- putStrLn $ "Checking approval by " ++ apApprover approval ++ ": commitValid=" ++ show commitValid ++ ", contentValid=" ++ show contentValid
-        return (commitValid || contentValid)
-        ) approvals
-      
-      return validApprovals
+      (code, out, _) <- readProcessWithExitCode "git" ["rev-parse", branch] ""
+      if code /= ExitSuccess
+        then return [] -- Branch doesn't exist, no valid approvals
+        else do
+          let currentCommit = trimTrailing out
+          currentContentHash <- generatePatchHash base currentCommit
+          
+          let approvals = approvalHistory pr
+          validApprovals <- filterM (\approval -> do
+            -- Check if approval is valid by commit ID or content hash
+            let commitValid = any (\ci -> ciHash ci == currentCommit) (apCommits approval)
+            let contentValid = case apContentHash approval of
+                  Just hash -> hash == currentContentHash
+                  Nothing -> False
+            -- For debugging, let's see what's happening
+            -- putStrLn $ "Checking approval by " ++ apApprover approval ++ ": commitValid=" ++ show commitValid ++ ", contentValid=" ++ show contentValid
+            return (commitValid || contentValid)
+            ) approvals
+          
+          return validApprovals
   where
     filterM :: Monad m => (a -> m Bool) -> [a] -> m [a]
     filterM _ [] = return []
@@ -410,16 +429,20 @@ checkReviewStatus branch = do
     Nothing -> return (False, [])
     Just pr -> do
       base <- getBaseBranch
-      currentCommit <- trimTrailing <$> readProcess "git" ["rev-parse", branch] ""
-      currentContentHash <- generatePatchHash base currentCommit
-      
-      let reviewEvents = prReviews pr
-      let endEvents = filter (\re -> reAction re == "end") reviewEvents
-      let reviewedHashes = [hash | re <- endEvents, Just hash <- [reContentHash re]]
-      let isReviewed = currentContentHash `elem` reviewedHashes
-      let reviewers = nub [reReviewer re | re <- endEvents, reContentHash re == Just currentContentHash]
-      
-      return (isReviewed, reviewers)
+      (code, out, _) <- readProcessWithExitCode "git" ["rev-parse", branch] ""
+      if code /= ExitSuccess
+        then return (False, []) -- Branch doesn't exist, can't check current review status
+        else do
+          let currentCommit = trimTrailing out
+          currentContentHash <- generatePatchHash base currentCommit
+          
+          let reviewEvents = prReviews pr
+          let endEvents = filter (\re -> reAction re == "end") reviewEvents
+          let reviewedHashes = [hash | re <- endEvents, Just hash <- [reContentHash re]]
+          let isReviewed = currentContentHash `elem` reviewedHashes
+          let reviewers = nub [reReviewer re | re <- endEvents, reContentHash re == Just currentContentHash]
+          
+          return (isReviewed, reviewers)
 
 -- Check if a specific commit has been reviewed
 checkCommitReviewStatus :: String -> String -> IO Bool
@@ -428,11 +451,26 @@ checkCommitReviewStatus branch commitHash = do
   case Map.lookup branch state of
     Nothing -> return False
     Just pr -> do
-      base <- getBaseBranch
-      commitContentHash <- generatePatchHash base commitHash
-      
       let reviewEvents = prReviews pr
       let endEvents = filter (\re -> reAction re == "end") reviewEvents
-      let reviewedHashes = [hash | re <- endEvents, Just hash <- [reContentHash re]]
       
-      return (commitContentHash `elem` reviewedHashes)
+      -- Check new format first (individual commit hashes)
+      let reviewedCommitMaps = [commitMap | re <- endEvents, Just commitMap <- [reReviewedCommits re]]
+      let directlyReviewed = any (Map.member commitHash) reviewedCommitMaps
+      
+      if directlyReviewed
+        then return True
+        else do
+          -- Fall back to legacy format for backward compatibility
+          base <- getBaseBranch
+          (code, _, _) <- readProcessWithExitCode "git" ["rev-parse", "--verify", commitHash] ""
+          if code /= ExitSuccess
+            then return False -- Commit doesn't exist
+            else do
+              let legacyHashes = [hash | re <- endEvents, Just hash <- [reContentHash re], reReviewedCommits re == Nothing]
+              if null legacyHashes
+                then return False
+                else do
+                  -- For legacy events, check if this commit's content matches any reviewed content
+                  commitContentHash <- generatePatchHash base commitHash
+                  return (commitContentHash `elem` legacyHashes)
