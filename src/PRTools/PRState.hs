@@ -12,6 +12,7 @@ import Data.Time (UTCTime, NominalDiffTime, diffUTCTime, formatTime, getCurrentT
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import System.Process (readProcess, readProcessWithExitCode)
 import PRTools.Config (getBaseBranch, trimTrailing, getStaleDays)
+import PRTools.ContentHash (generatePatchHash)
 import System.Exit (ExitCode(..))
 import Data.List (nub)
 
@@ -83,6 +84,7 @@ data Approval = Approval
   { apApprover :: String
   , apTimestamp :: String
   , apCommits :: [CommitInfo]
+  , apContentHash :: Maybe String  -- New field for content-based approval
   } deriving (Eq, Show)
 
 instance FromJSON Approval where
@@ -90,12 +92,14 @@ instance FromJSON Approval where
         <$> v .: fromString "approver"
         <*> v .: fromString "timestamp"
         <*> v .:? fromString "commits" .!= []
+        <*> v .:? fromString "content_hash"
 
 instance ToJSON Approval where
     toJSON ap = object
         [ fromString "approver" .= apApprover ap
         , fromString "timestamp" .= apTimestamp ap
         , fromString "commits" .= apCommits ap
+        , fromString "content_hash" .= apContentHash ap
         ]
 
 data MergeInfo = MergeInfo
@@ -136,7 +140,7 @@ instance FromJSON PRState where
                            Just new -> new
                            Nothing -> case maybeIntermediateApprovals of
                                         Just intermediate -> intermediate
-                                        Nothing -> map (\name -> Approval name "migrated-approval" []) maybeOldApprovals
+                                        Nothing -> map (\name -> Approval name "migrated-approval" [] Nothing) maybeOldApprovals
 
     PRState
       <$> v .: fromString "status"
@@ -286,6 +290,70 @@ recordFixEvent branch fixer action = do
     let newState = Map.insert branch updatedPr state
     saveState newState
 
+-- Check if approvals are still valid for the current branch state
+checkValidApprovals :: String -> IO [Approval]
+checkValidApprovals branch = do
+  state <- loadState
+  case Map.lookup branch state of
+    Nothing -> return []
+    Just pr -> do
+      base <- getBaseBranch
+      currentCommit <- trimTrailing <$> readProcess "git" ["rev-parse", branch] ""
+      currentContentHash <- generatePatchHash base currentCommit
+      
+      let approvals = approvalHistory pr
+      validApprovals <- filterM (\approval -> do
+        -- Check if approval is valid by commit ID or content hash
+        let commitValid = any (\ci -> ciHash ci == currentCommit) (apCommits approval)
+        let contentValid = case apContentHash approval of
+              Just hash -> hash == currentContentHash
+              Nothing -> False
+        return (commitValid || contentValid)
+        ) approvals
+      
+      return validApprovals
+  where
+    filterM :: Monad m => (a -> m Bool) -> [a] -> m [a]
+    filterM _ [] = return []
+    filterM p (x:xs) = do
+      flg <- p x
+      ys <- filterM p xs
+      return (if flg then x:ys else ys)
+
+-- Transfer approvals after a rebase by updating commit hashes while preserving content hashes
+transferApprovalsAfterRebase :: String -> String -> String -> IO ()
+transferApprovalsAfterRebase branch oldCommit newCommit = do
+  state <- loadState
+  case Map.lookup branch state of
+    Nothing -> return ()
+    Just pr -> do
+      base <- getBaseBranch
+      oldContentHash <- generatePatchHash base oldCommit
+      newContentHash <- generatePatchHash base newCommit
+      
+      -- Only transfer if content is the same
+      if oldContentHash == newContentHash then do
+        -- Get new commit list
+        logOut <- readProcess "git" ["log", "--format=%H %s", base ++ ".." ++ newCommit, "--"] ""
+        let commitLines = lines logOut
+        let newCommits = map (\ln -> let h = take 40 ln
+                                         m = drop 41 ln
+                                     in CommitInfo h m) (filter (not . null) commitLines)
+        
+        -- Update approvals with new commit hashes but keep content hash
+        let updatedApprovals = map (\approval -> 
+              case apContentHash approval of
+                Just hash | hash == oldContentHash -> approval { apCommits = newCommits }
+                _ -> approval
+              ) (approvalHistory pr)
+        
+        let updatedPr = pr { approvalHistory = updatedApprovals }
+        let newState = Map.insert branch updatedPr state
+        saveState newState
+        putStrLn "Approvals transferred after rebase"
+      else
+        putStrLn "Content has changed - approvals cannot be transferred automatically"
+
 recordApproval :: String -> String -> String -> IO ()
 recordApproval branch approver commitHash = do
   state <- loadState
@@ -298,9 +366,12 @@ recordApproval branch approver commitHash = do
                                 m = drop 41 ln
                             in CommitInfo h m) (filter (not . null) commitLines)
 
+  -- Generate content hash for the patch
+  contentHash <- generatePatchHash base commitHash
+
   currentTime <- getCurrentTime
   let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
-  let newApproval = Approval approver timeStr commits
+  let newApproval = Approval approver timeStr commits (Just contentHash)
   let newApprovalHistory = approvalHistory pr ++ [newApproval]
   
   let newPr = pr { approvalHistory = newApprovalHistory }

@@ -7,6 +7,7 @@ import System.IO (hPutStrLn, stderr)
 import System.Process (readProcess, readProcessWithExitCode)
 import PRTools.Config (trimTrailing, getBaseBranch)
 import PRTools.PRState
+import PRTools.ContentHash (generatePatchHash)
 import Data.Time (getCurrentTime, formatTime)
 import Data.Time.Format (defaultTimeLocale)
 
@@ -15,6 +16,7 @@ data Command =
   | Status { sBranch :: Maybe String }
   | Record { rBranch :: Maybe String }
   | List
+  | Rebase { reBranch :: Maybe String, reOldCommit :: String, reNewCommit :: Maybe String }
 
 commandParser :: Parser Command
 commandParser = subparser
@@ -26,6 +28,7 @@ commandParser = subparser
  <> command "r" (info recordParser (progDesc "Shortcut for record"))
  <> command "rec" (info recordParser (progDesc "Shortcut for record"))
  <> command "list" (info (pure List) (progDesc "List tracked PRs"))
+ <> command "rebase" (info rebaseParser (progDesc "Transfer approvals after rebase"))
   )
   where
     approveParser = Approve
@@ -36,6 +39,10 @@ commandParser = subparser
       <$> optional (strArgument (metavar "BRANCH" <> help "Branch to check (default: current)"))
     recordParser = Record
       <$> optional (strArgument (metavar "BRANCH" <> help "Branch to record (default: current)"))
+    rebaseParser = Rebase
+      <$> optional (strOption (long "branch" <> metavar "BRANCH" <> help "Branch that was rebased (default: current)"))
+      <*> strOption (long "old-commit" <> metavar "HASH" <> help "Commit hash before rebase")
+      <*> optional (strOption (long "new-commit" <> metavar "HASH" <> help "Commit hash after rebase (default: current HEAD)"))
 
 main :: IO ()
 main = do
@@ -61,15 +68,31 @@ main = do
         Nothing -> putStrLn $ "No status for " ++ branch
         Just pr -> do
           putStrLn $ "Status: " ++ prStatus pr
+          
+          -- Check current valid approvals
+          validApprovals <- checkValidApprovals branch
+          let allApprovers = nub (map apApprover (approvalHistory pr))
+          let validApprovers = nub (map apApprover validApprovals)
+          
           putStr "Approvals: "
-          putStrLn $ if null (approvalHistory pr) then "none" else intercalate ", " (nub (map apApprover (approvalHistory pr)))
+          if null allApprovers 
+            then putStrLn "none"
+            else do
+              putStrLn $ intercalate ", " validApprovers
+              when (length validApprovers < length allApprovers) $
+                putStrLn $ "  (Note: " ++ show (length allApprovers - length validApprovers) ++ " approvals are no longer valid due to changes)"
 
           when (not (null (approvalHistory pr))) $ do
             putStrLn "Approval History:"
             mapM_ (\ap -> do
-              putStrLn $ "- Approved by " ++ apApprover ap ++ " at " ++ apTimestamp ap
+              let isValid = ap `elem` validApprovals
+              let validityNote = if isValid then "" else " (INVALID - content changed)"
+              putStrLn $ "- Approved by " ++ apApprover ap ++ " at " ++ apTimestamp ap ++ validityNote
               putStrLn "  Approved commits:"
               mapM_ (\c -> putStrLn $ "  - " ++ take 7 (ciHash c) ++ " " ++ ciMessage c) (apCommits ap)
+              case apContentHash ap of
+                Just hash -> putStrLn $ "  Content hash: " ++ hash
+                Nothing -> putStrLn "  Content hash: (legacy approval)"
               ) (approvalHistory pr)
 
           when (not (null (prReviews pr))) $ do
@@ -128,3 +151,13 @@ main = do
       if Map.null state
         then putStrLn "No PRs tracked"
         else Map.foldrWithKey (\b pr acc -> putStrLn (b ++ ": " ++ prStatus pr ++ " (approvals: " ++ show (length $ approvalHistory pr) ++ ")") >> acc) (return ()) state
+    Rebase mbBranch oldCommit mbNewCommit -> do
+      branch <- case mbBranch of
+        Just b -> return b
+        Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
+      
+      newCommit <- case mbNewCommit of
+        Just c -> return c
+        Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", branch] "")
+      
+      transferApprovalsAfterRebase branch oldCommit newCommit

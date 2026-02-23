@@ -312,7 +312,7 @@ main = do
               Nothing -> putStrLn "Slack webhook not configured, skipping notification."
               Just webhook -> do
                 let trackCmd = "pr-track approve " ++ branch ++ " --by \"" ++ reviewer ++ "\" --commit " ++ currentHash
-                let message = "✅ PR " ++ branch ++ " approved by " ++ reviewer ++ " at commit " ++ currentHash ++ "\nRun this to track approval:\n`" ++ trackCmd ++ "`"
+                let message = "✅ PR " ++ branch ++ " approved by " ++ reviewer ++ " at commit " ++ currentHash ++ " (with content hash for rebase safety)\nRun this to track approval:\n`" ++ trackCmd ++ "`"
                 sendViaWebhook webhook message
     Comments withCtx showAll showResolved -> do
       mState <- loadReviewState reviewFile

@@ -148,12 +148,14 @@ pr-track status [BRANCH]
 pr-track record [BRANCH]
 pr-track update [BRANCH]
 pr-track list
+pr-track rebase --old-commit HASH [--branch BRANCH] [--new-commit HASH]
 ```
 
 - `approve [BRANCH] --by NAME`: Approve the PR by the given name. `BRANCH` defaults to current.
-- `status [BRANCH]`: Get the status, approvals, and merge status for the PR. Checks if commits are merged into the base branch. `BRANCH` defaults to current.
+- `status [BRANCH]`: Get the status, approvals, and merge status for the PR. Checks if commits are merged into the base branch and validates approvals against current content. `BRANCH` defaults to current.
 - `record [BRANCH]`: Record or update the commit snapshot for the PR. Synonyms: update, u, r, rec. `BRANCH` defaults to current.
 - `list`: List all tracked PRs with status and approval counts.
+- `rebase --old-commit HASH [--branch BRANCH] [--new-commit HASH]`: Transfer approvals after a rebase if the content hasn't changed. `BRANCH` defaults to current, `--new-commit` defaults to current HEAD.
 
 ### pr-merge
 
@@ -263,9 +265,10 @@ No additional flags.
 5. **Conduct Review**: Reviewer runs `pr-review start`, navigates files with `next`/`open`, adds comments, then `pr-review send` to send compact review to Slack.
 6. **Fix Comments**: Developer runs `pr-fix start`, pastes the Slack review message, navigates with `pr-fix next`/`open` to edit files and mark comments (solved/not-solved/will-not-solve), adds answers, or use `pr-fix resolve` for CLI updates, then `pr-fix end` to commit changes, and `pr-fix send` to report back via Slack.
 7. **View Annotated Diff**: Anyone can run `pr-view <branch>` to see changes with comments (use --full for full files or `pr-view comments` for comment list).
-8. **Merge PR**: Once approved, run `pr-merge <branch>` to merge and update changelog.
+8. **Handle Rebases**: If you need to rebase before merging, run `pr-track rebase --old-commit <old-head>` after rebasing to transfer approvals if content hasn't changed.
+9. **Merge PR**: Once approved, run `pr-merge <branch>` to merge and update changelog.
 
-This workflow enables collaborative reviews without committing review files to the repo, using Slack for communication.
+This workflow enables collaborative reviews without committing review files to the repo, using Slack for communication. The approval system now handles rebases intelligently by tracking both commit IDs and content hashes.
 
 ## Contributing
 
