@@ -158,7 +158,11 @@ main = do
                 then putStrLn $ "PR is fully merged into " ++ base
                 else return ()
               putStrLn "All historical commits:"
-              mapM_ (\(ci, s, _) -> putStrLn $ "- " ++ take 7 (ciHash ci) ++ " " ++ ciMessage ci ++ " (" ++ s ++ ")") sorted_statuses
+              mapM_ (\(ci, s, _) -> do
+                isReviewed <- checkCommitReviewStatus branch (ciHash ci)
+                let reviewStatus = if isReviewed then ", reviewed" else ", not reviewed"
+                putStrLn $ "- " ++ take 7 (ciHash ci) ++ " " ++ ciMessage ci ++ " (" ++ s ++ reviewStatus ++ ")"
+                ) sorted_statuses
     Record mbBranch -> do
       branch <- case mbBranch of
         Just b -> return b

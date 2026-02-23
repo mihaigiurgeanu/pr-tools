@@ -420,3 +420,19 @@ checkReviewStatus branch = do
       let reviewers = nub [reReviewer re | re <- endEvents, reContentHash re == Just currentContentHash]
       
       return (isReviewed, reviewers)
+
+-- Check if a specific commit has been reviewed
+checkCommitReviewStatus :: String -> String -> IO Bool
+checkCommitReviewStatus branch commitHash = do
+  state <- loadState
+  case Map.lookup branch state of
+    Nothing -> return False
+    Just pr -> do
+      base <- getBaseBranch
+      commitContentHash <- generatePatchHash base commitHash
+      
+      let reviewEvents = prReviews pr
+      let endEvents = filter (\re -> reAction re == "end") reviewEvents
+      let reviewedHashes = [hash | re <- endEvents, Just hash <- [reContentHash re]]
+      
+      return (commitContentHash `elem` reviewedHashes)
