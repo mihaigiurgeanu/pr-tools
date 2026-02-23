@@ -10,3 +10,5 @@
 - Merged fix/rebase-approvals-content-changed using fast-forward on 2026-02-23
 
 - Merged feature/record-reviewed-commits using fast-forward on 2026-02-23
+
+- Merged feature/readable-list-of-commits using fast-forward on 2026-02-23
