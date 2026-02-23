@@ -21,16 +21,16 @@ data Command =
 
 commandParser :: Parser Command
 commandParser = subparser
-  ( command "approve" (info approveParser (progDesc "Approve a PR"))
- <> command "status" (info statusParser (progDesc "Get PR status"))
- <> command "record" (info recordParser (progDesc "Record/update PR commit snapshot"))
- <> command "update" (info recordParser (progDesc "Synonym for record"))
- <> command "u" (info recordParser (progDesc "Shortcut for update"))
- <> command "r" (info recordParser (progDesc "Shortcut for record"))
- <> command "rec" (info recordParser (progDesc "Shortcut for record"))
- <> command "list" (info (pure List) (progDesc "List tracked PRs"))
- <> command "rebase" (info rebaseParser (progDesc "Transfer approvals after rebase"))
- <> command "debug" (info debugParser (progDesc "Debug content hash differences"))
+  ( command "approve" (info (approveParser <**> helper) (progDesc "Approve a PR by name"))
+ <> command "status" (info (statusParser <**> helper) (progDesc "Get PR status, approvals, and review history"))
+ <> command "record" (info (recordParser <**> helper) (progDesc "Record/update PR commit snapshot"))
+ <> command "update" (info (recordParser <**> helper) (progDesc "Synonym for record"))
+ <> command "u" (info (recordParser <**> helper) (progDesc "Shortcut for update"))
+ <> command "r" (info (recordParser <**> helper) (progDesc "Shortcut for record"))
+ <> command "rec" (info (recordParser <**> helper) (progDesc "Shortcut for record"))
+ <> command "list" (info (pure List <**> helper) (progDesc "List all tracked PRs with status"))
+ <> command "rebase" (info (rebaseParser <**> helper) (progDesc "Transfer approvals after rebase if content unchanged"))
+ <> command "debug" (info (debugParser <**> helper) (progDesc "Debug content hash differences between commits"))
   )
   where
     approveParser = Approve
@@ -52,7 +52,10 @@ commandParser = subparser
 
 main :: IO ()
 main = do
-  cmd <- execParser $ info (commandParser <**> helper) idm
+  cmd <- execParser $ info (commandParser <**> helper) 
+    ( fullDesc
+   <> progDesc "Track PR approvals, status, and commit history"
+   <> header "pr-track - PR tracking and approval management tool" )
   state <- loadState
   case cmd of
     Approve mbBranch by mbCommit -> do
