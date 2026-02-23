@@ -6,9 +6,12 @@ import System.Process (readProcess)
 import PRTools.Config (trimTrailing)
 
 -- Generate a hash from the patch content, excluding metadata
+-- Uses the merge-base to ensure consistent comparison point
 generatePatchHash :: String -> String -> IO String
 generatePatchHash baseCommit headCommit = do
-  patchContent <- readProcess "git" ["diff", baseCommit, headCommit] ""
+  -- Find the actual merge base between the base branch and the commit
+  mergeBase <- trimTrailing <$> readProcess "git" ["merge-base", baseCommit, headCommit] ""
+  patchContent <- readProcess "git" ["diff", mergeBase, headCommit] ""
   let normalizedPatch = normalizePatch patchContent
   return $ take 12 $ show $ abs $ hash normalizedPatch
 
@@ -45,8 +48,15 @@ normalizeWhitespace line
 -- Debug function to compare patch content (for troubleshooting)
 debugPatchDifference :: String -> String -> String -> IO ()
 debugPatchDifference baseCommit oldCommit newCommit = do
-  oldPatch <- readProcess "git" ["diff", baseCommit, oldCommit] ""
-  newPatch <- readProcess "git" ["diff", baseCommit, newCommit] ""
+  -- Use merge-base for consistent comparison
+  oldMergeBase <- trimTrailing <$> readProcess "git" ["merge-base", baseCommit, oldCommit] ""
+  newMergeBase <- trimTrailing <$> readProcess "git" ["merge-base", baseCommit, newCommit] ""
+  
+  putStrLn $ "Old merge base: " ++ oldMergeBase
+  putStrLn $ "New merge base: " ++ newMergeBase
+  
+  oldPatch <- readProcess "git" ["diff", oldMergeBase, oldCommit] ""
+  newPatch <- readProcess "git" ["diff", newMergeBase, newCommit] ""
   let oldNormalized = normalizePatch oldPatch
   let newNormalized = normalizePatch newPatch
   putStrLn "=== OLD PATCH (normalized) ==="
