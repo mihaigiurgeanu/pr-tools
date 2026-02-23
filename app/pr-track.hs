@@ -141,24 +141,27 @@ main = do
                 is_m <- isAncestor (ciHash ci) base
                 is_p <- if not branch_exists then return False else isAncestor (ciHash ci) branch_tip
                 let s = if is_m then "merged" else if is_p then "pending" else "removed"
-                return (ci, s, ts)
+                -- Get the actual commit timestamp from git
+                commitTime <- trimTrailing <$> readProcess "git" ["log", "-1", "--format=%ct", ciHash ci] ""
+                let commitTimestamp = read commitTime :: Int
+                return (ci, s, ts, commitTimestamp)
                 ) (Map.elems all_commits)
-              let sorted_statuses = sortBy (\(_,_,ts1) (_,_,ts2) -> compare ts1 ts2) temp_list
-              let mergedCount = length [() | (_,s,_) <- sorted_statuses, s == "merged"]
-              let pendingCount = length [() | (_,s,_) <- sorted_statuses, s == "pending"]
-              let removedCount = length [() | (_,s,_) <- sorted_statuses, s == "removed"]
+              let sorted_statuses = sortBy (\(_,_,_,t1) (_,_,_,t2) -> compare t2 t1) temp_list -- newest first
+              let mergedCount = length [() | (_,s,_,_) <- sorted_statuses, s == "merged"]
+              let pendingCount = length [() | (_,s,_,_) <- sorted_statuses, s == "pending"]
+              let removedCount = length [() | (_,s,_,_) <- sorted_statuses, s == "removed"]
               let total = length sorted_statuses
               putStrLn $ "Latest snapshot at " ++ psTimestamp (last (prSnapshots pr))
               putStrLn $ "Commit status: " ++ show mergedCount ++ " merged, " ++ show pendingCount ++ " pending, " ++ show removedCount ++ " removed out of " ++ show total
               let latest = last (prSnapshots pr)
               let latest_hashes = map ciHash (psCommits latest)
-              let hash_to_s = Map.fromList [ (ciHash ci, s) | (ci, s, _) <- temp_list ]
+              let hash_to_s = Map.fromList [ (ciHash ci, s) | (ci, s, _, _) <- temp_list ]
               let all_latest_merged = not (null latest_hashes) && all (\h -> Map.lookup h hash_to_s == Just "merged") latest_hashes
               if all_latest_merged
                 then putStrLn $ "PR is fully merged into " ++ base
                 else return ()
               putStrLn "All historical commits:"
-              mapM_ (\(ci, s, _) -> do
+              mapM_ (\(ci, s, _, _) -> do
                 isReviewed <- checkCommitReviewStatus branch (ciHash ci)
                 let reviewStatus = if isReviewed then ", reviewed" else ", not reviewed"
                 putStrLn $ "- " ++ take 7 (ciHash ci) ++ " " ++ ciMessage ci ++ " (" ++ s ++ reviewStatus ++ ")"
