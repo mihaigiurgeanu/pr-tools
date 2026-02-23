@@ -447,18 +447,46 @@ checkReviewStatus branch = do
       base <- getBaseBranch
       (code, out, _) <- readProcessWithExitCode "git" ["rev-parse", branch] ""
       if code /= ExitSuccess
-        then return (False, []) -- Branch doesn't exist, can't check current review status
+        then do
+          -- Branch doesn't exist, check if all commits from latest snapshot are reviewed
+          if null (prSnapshots pr)
+            then return (False, [])
+            else do
+              let latestSnapshot = last (prSnapshots pr)
+              let commits = psCommits latestSnapshot
+              if null commits
+                then return (False, [])
+                else do
+                  -- Check if all commits from the snapshot are reviewed
+                  reviewStatuses <- mapM (checkCommitReviewStatus branch . ciHash) commits
+                  let allReviewed = and reviewStatuses
+                  if allReviewed
+                    then do
+                      -- Get reviewers from review events
+                      let reviewEvents = prReviews pr
+                      let endEvents = filter (\re -> reAction re == "end") reviewEvents
+                      let reviewers = nub [reReviewer re | re <- endEvents]
+                      return (True, reviewers)
+                    else return (False, [])
         else do
+          -- Branch exists, get current commits and check if all are reviewed
           let currentCommit = trimTrailing out
-          currentContentHash <- generatePatchHash base currentCommit
-          
-          let reviewEvents = prReviews pr
-          let endEvents = filter (\re -> reAction re == "end") reviewEvents
-          let reviewedHashes = [hash | re <- endEvents, Just hash <- [reContentHash re]]
-          let isReviewed = currentContentHash `elem` reviewedHashes
-          let reviewers = nub [reReviewer re | re <- endEvents, reContentHash re == Just currentContentHash]
-          
-          return (isReviewed, reviewers)
+          logOut <- readProcess "git" ["log", "--format=%H", base ++ ".." ++ currentCommit] ""
+          let commitHashes = lines logOut
+          if null commitHashes
+            then return (True, []) -- No commits to review
+            else do
+              -- Check if all current commits are reviewed
+              reviewStatuses <- mapM (checkCommitReviewStatus branch) commitHashes
+              let allReviewed = and reviewStatuses
+              if allReviewed
+                then do
+                  -- Get reviewers from review events
+                  let reviewEvents = prReviews pr
+                  let endEvents = filter (\re -> reAction re == "end") reviewEvents
+                  let reviewers = nub [reReviewer re | re <- endEvents]
+                  return (True, reviewers)
+                else return (False, [])
 
 -- Check if a specific commit has been reviewed
 checkCommitReviewStatus :: String -> String -> IO Bool
