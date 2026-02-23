@@ -184,6 +184,7 @@ main = do
           let files = lines filesOut
           let resumed = existing { rsStatus = "active", rsFiles = files, rsCurrentIndex = 0 }
           saveReviewState reviewFile resumed
+          recordReviewEvent branch reviewer "start"
           putStrLn "Resuming existing review"
           recordPR branch >>= putStrLn
         Nothing -> do
