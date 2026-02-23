@@ -261,7 +261,23 @@ recordPR branch = do
 
       let checkCommits = if not (null commits) then commits else if null (prSnapshots ex) then [] else psCommits (last (prSnapshots ex))
       allMerged <- if null checkCommits then return False else and <$> mapM (\ci -> isAncestor (ciHash ci) base) checkCommits
-      let finalStatus = if allMerged && statusAfterStale /= "merged" then "merged" else statusAfterStale
+      
+      -- Check if all commits are removed (not reachable from branch or base)
+      allRemoved <- if null checkCommits then return False else do
+        -- Check if branch exists
+        (branchCode, _, _) <- readProcessWithExitCode "git" ["rev-parse", "--verify", branch] ""
+        if branchCode == ExitSuccess then do
+          -- Branch exists, check if commits are reachable from it
+          branchReachable <- and <$> mapM (\ci -> isAncestor (ciHash ci) branch) checkCommits
+          return (not branchReachable)
+        else do
+          -- Branch doesn't exist, commits are removed if not in base
+          baseReachable <- and <$> mapM (\ci -> isAncestor (ciHash ci) base) checkCommits
+          return (not baseReachable)
+      
+      let finalStatus = if allMerged then "merged" 
+                       else if allRemoved then "removed"
+                       else statusAfterStale
 
       let updated = ex { prSnapshots = updatedSnapshots, prStatus = finalStatus }
       let newState = Map.insert branch updated state
