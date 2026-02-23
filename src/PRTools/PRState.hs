@@ -448,7 +448,7 @@ checkReviewStatus branch = do
       (code, out, _) <- readProcessWithExitCode "git" ["rev-parse", branch] ""
       if code /= ExitSuccess
         then do
-          -- Branch doesn't exist, check if all commits from latest snapshot are reviewed
+          -- Branch doesn't exist, check if all non-removed commits from latest snapshot are reviewed
           if null (prSnapshots pr)
             then return (False, [])
             else do
@@ -457,17 +457,26 @@ checkReviewStatus branch = do
               if null commits
                 then return (False, [])
                 else do
-                  -- Check if all commits from the snapshot are reviewed
-                  reviewStatuses <- mapM (checkCommitReviewStatus branch . ciHash) commits
-                  let allReviewed = and reviewStatuses
-                  if allReviewed
-                    then do
-                      -- Get reviewers from review events
-                      let reviewEvents = prReviews pr
-                      let endEvents = filter (\re -> reAction re == "end") reviewEvents
-                      let reviewers = nub [reReviewer re | re <- endEvents]
-                      return (True, reviewers)
-                    else return (False, [])
+                  -- Filter out removed commits (commits that no longer exist)
+                  existingCommits <- filterM (\ci -> do
+                    (commitCode, _, _) <- readProcessWithExitCode "git" ["rev-parse", "--verify", ciHash ci] ""
+                    return (commitCode == ExitSuccess)
+                    ) commits
+                  
+                  if null existingCommits
+                    then return (True, []) -- All commits are removed, consider reviewed
+                    else do
+                      -- Check if all existing commits are reviewed
+                      reviewStatuses <- mapM (checkCommitReviewStatus branch . ciHash) existingCommits
+                      let allReviewed = and reviewStatuses
+                      if allReviewed
+                        then do
+                          -- Get reviewers from review events
+                          let reviewEvents = prReviews pr
+                          let endEvents = filter (\re -> reAction re == "end") reviewEvents
+                          let reviewers = nub [reReviewer re | re <- endEvents]
+                          return (True, reviewers)
+                        else return (False, [])
         else do
           -- Branch exists, get current commits and check if all are reviewed
           let currentCommit = trimTrailing out
@@ -487,6 +496,13 @@ checkReviewStatus branch = do
                   let reviewers = nub [reReviewer re | re <- endEvents]
                   return (True, reviewers)
                 else return (False, [])
+  where
+    filterM :: Monad m => (a -> m Bool) -> [a] -> m [a]
+    filterM _ [] = return []
+    filterM p (x:xs) = do
+      flg <- p x
+      ys <- filterM p xs
+      return (if flg then x:ys else ys)
 
 -- Check if a specific commit has been reviewed
 checkCommitReviewStatus :: String -> String -> IO Bool
