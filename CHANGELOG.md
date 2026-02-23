@@ -6,3 +6,5 @@
 - Merged feature/issue-55-same-end-of-line-convention using fast-forward on 2026-01-16
 
 - Merged feature/rebase-approvals using fast-forward on 2026-02-23
+
+- Merged fix/rebase-approvals-content-changed using fast-forward on 2026-02-23
