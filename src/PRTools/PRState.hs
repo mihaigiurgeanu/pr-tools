@@ -46,6 +46,7 @@ data ReviewEvent = ReviewEvent
   { reReviewer :: String
   , reAction :: String -- "start", "end", "import-answers"
   , reTimestamp :: String
+  , reContentHash :: Maybe String -- Content hash for "end" actions
   } deriving (Eq, Show)
 
 instance FromJSON ReviewEvent where
@@ -53,12 +54,14 @@ instance FromJSON ReviewEvent where
     <$> v .: fromString "reviewer"
     <*> v .: fromString "action"
     <*> v .: fromString "timestamp"
+    <*> v .:? fromString "content_hash"
 
 instance ToJSON ReviewEvent where
   toJSON re = object
     [ fromString "reviewer" .= reReviewer re
     , fromString "action" .= reAction re
     , fromString "timestamp" .= reTimestamp re
+    , fromString "content_hash" .= reContentHash re
     ]
 
 data FixEvent = FixEvent
@@ -273,7 +276,19 @@ recordReviewEvent branch reviewer action = do
     state <- loadState
     currentTime <- getCurrentTime
     let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
-    let newEvent = ReviewEvent reviewer action timeStr
+    let newEvent = ReviewEvent reviewer action timeStr Nothing
+    let pr = Map.findWithDefault (PRState "open" [] [] [] [] Nothing) branch state
+    let updatedPr = pr { prReviews = prReviews pr ++ [newEvent] }
+    let newState = Map.insert branch updatedPr state
+    saveState newState
+
+-- Record review event with content hash (for "end" actions)
+recordReviewEventWithHash :: String -> String -> String -> Maybe String -> IO ()
+recordReviewEventWithHash branch reviewer action mbContentHash = do
+    state <- loadState
+    currentTime <- getCurrentTime
+    let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
+    let newEvent = ReviewEvent reviewer action timeStr mbContentHash
     let pr = Map.findWithDefault (PRState "open" [] [] [] [] Nothing) branch state
     let updatedPr = pr { prReviews = prReviews pr ++ [newEvent] }
     let newState = Map.insert branch updatedPr state
@@ -386,3 +401,22 @@ recordApproval branch approver commitHash = do
   let newPr = pr { approvalHistory = newApprovalHistory }
   let newState = Map.insert branch newPr state
   saveState newState
+
+-- Check if current content has been reviewed
+checkReviewStatus :: String -> IO (Bool, [String])
+checkReviewStatus branch = do
+  state <- loadState
+  case Map.lookup branch state of
+    Nothing -> return (False, [])
+    Just pr -> do
+      base <- getBaseBranch
+      currentCommit <- trimTrailing <$> readProcess "git" ["rev-parse", branch] ""
+      currentContentHash <- generatePatchHash base currentCommit
+      
+      let reviewEvents = prReviews pr
+      let endEvents = filter (\re -> reAction re == "end") reviewEvents
+      let reviewedHashes = [hash | re <- endEvents, Just hash <- [reContentHash re]]
+      let isReviewed = currentContentHash `elem` reviewedHashes
+      let reviewers = nub [reReviewer re | re <- endEvents, reContentHash re == Just currentContentHash]
+      
+      return (isReviewed, reviewers)

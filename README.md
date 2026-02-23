@@ -152,7 +152,7 @@ pr-track rebase --old-commit HASH [--branch BRANCH] [--new-commit HASH]
 ```
 
 - `approve [BRANCH] --by NAME`: Approve the PR by the given name. `BRANCH` defaults to current.
-- `status [BRANCH]`: Get the status, approvals, and merge status for the PR. Checks if commits are merged into the base branch and validates approvals against current content. `BRANCH` defaults to current.
+- `status [BRANCH]`: Get the status, approvals, review status, and merge status for the PR. Checks if commits are merged into the base branch, validates approvals against current content, and shows if the current content has been reviewed. `BRANCH` defaults to current.
 - `record [BRANCH]`: Record or update the commit snapshot for the PR. Synonyms: update, u, r, rec. `BRANCH` defaults to current.
 - `list`: List all tracked PRs with status and approval counts.
 - `rebase --old-commit HASH [--branch BRANCH] [--new-commit HASH]`: Transfer approvals after a rebase if the content hasn't changed. `BRANCH` defaults to current, `--new-commit` defaults to current HEAD.
@@ -198,7 +198,7 @@ pr-review comments [--all] [--with-context]
 - `changes`: Show the git diff.
 - `comment --file FILE --line LINE --text "COMMENT"`: Add a comment via CLI.
 - `resolve --id ID`: Mark a comment as resolved.
-- `end`: End the review session.
+- `end`: End the review session and record the content hash of the reviewed commits.
 - `list`: List all review sessions.
 - `send`: Send the review comments to Slack.
 - `comments [--with-context] [--all]`: List comments,By default, shows unresolved comments. Use `--all` for all, or `--resolved` for only resolved. `--with-context` adds surrounding code.

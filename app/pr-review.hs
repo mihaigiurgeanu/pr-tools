@@ -27,7 +27,8 @@ import PRTools.Config (getBaseBranch, getSlackWebhook, reviewDir, trimTrailing, 
 import PRTools.ReviewState
 import PRTools.CommentRenderer
 import PRTools.CommentFormatter
-import PRTools.PRState (recordPR, recordReviewEvent, recordApproval)
+import PRTools.PRState (recordPR, recordReviewEvent, recordReviewEventWithHash, recordApproval)
+import PRTools.ContentHash (generatePatchHash)
 import PRTools.Slack (sendViaApi, sendViaWebhook)
 import PRTools.ReviewLogic (filterComments)
 
@@ -249,7 +250,12 @@ main = do
         Just state -> do
           let newState = state { rsStatus = "closed" }
           saveReviewState reviewFile newState
-          recordReviewEvent branch reviewer "end"
+          
+          -- Generate content hash for the reviewed content
+          currentCommit <- trimTrailing <$> readProcess "git" ["rev-parse", branch] ""
+          contentHash <- generatePatchHash baseB currentCommit
+          
+          recordReviewEventWithHash branch reviewer "end" (Just contentHash)
           putStrLn "Review ended"
     List -> do
       rfs <- glob (reviewDir </> "*.yaml")

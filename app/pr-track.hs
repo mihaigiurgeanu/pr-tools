@@ -101,9 +101,21 @@ main = do
                 Nothing -> putStrLn "  Content hash: (legacy approval)"
               ) (approvalHistory pr)
 
+          -- Check review status
+          (isReviewed, reviewers) <- checkReviewStatus branch
+          putStr "Review Status: "
+          if isReviewed
+            then putStrLn $ "Reviewed by " ++ intercalate ", " reviewers
+            else putStrLn "Not reviewed"
+
           when (not (null (prReviews pr))) $ do
             putStrLn "Review History:"
-            mapM_ (\re -> putStrLn $ "- " ++ reAction re ++ " by " ++ reReviewer re ++ " at " ++ reTimestamp re) (prReviews pr)
+            mapM_ (\re -> do
+              let hashInfo = case reContentHash re of
+                    Just hash -> " (content hash: " ++ hash ++ ")"
+                    Nothing -> ""
+              putStrLn $ "- " ++ reAction re ++ " by " ++ reReviewer re ++ " at " ++ reTimestamp re ++ hashInfo
+              ) (prReviews pr)
 
           when (not (null (prFixes pr))) $ do
             putStrLn "Fix History:"
