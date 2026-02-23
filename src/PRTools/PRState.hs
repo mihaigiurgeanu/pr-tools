@@ -308,6 +308,8 @@ checkValidApprovals branch = do
         let contentValid = case apContentHash approval of
               Just hash -> hash == currentContentHash
               Nothing -> False
+        -- For debugging, let's see what's happening
+        -- putStrLn $ "Checking approval by " ++ apApprover approval ++ ": commitValid=" ++ show commitValid ++ ", contentValid=" ++ show contentValid
         return (commitValid || contentValid)
         ) approvals
       
@@ -325,11 +327,14 @@ transferApprovalsAfterRebase :: String -> String -> String -> IO ()
 transferApprovalsAfterRebase branch oldCommit newCommit = do
   state <- loadState
   case Map.lookup branch state of
-    Nothing -> return ()
+    Nothing -> putStrLn "No PR state found for branch"
     Just pr -> do
       base <- getBaseBranch
       oldContentHash <- generatePatchHash base oldCommit
       newContentHash <- generatePatchHash base newCommit
+      
+      putStrLn $ "Old content hash: " ++ oldContentHash
+      putStrLn $ "New content hash: " ++ newContentHash
       
       -- Only transfer if content is the same
       if oldContentHash == newContentHash then do
@@ -340,17 +345,21 @@ transferApprovalsAfterRebase branch oldCommit newCommit = do
                                          m = drop 41 ln
                                      in CommitInfo h m) (filter (not . null) commitLines)
         
+        putStrLn $ "Found " ++ show (length (approvalHistory pr)) ++ " approvals to check"
+        
         -- Update approvals with new commit hashes but keep content hash
         let updatedApprovals = map (\approval -> 
               case apContentHash approval of
-                Just hash | hash == oldContentHash -> approval { apCommits = newCommits }
+                Just hash | hash == oldContentHash -> do
+                  let updated = approval { apCommits = newCommits }
+                  updated
                 _ -> approval
               ) (approvalHistory pr)
         
         let updatedPr = pr { approvalHistory = updatedApprovals }
         let newState = Map.insert branch updatedPr state
         saveState newState
-        putStrLn "Approvals transferred after rebase"
+        putStrLn $ "Approvals transferred after rebase. Updated " ++ show (length updatedApprovals) ++ " approvals."
       else
         putStrLn "Content has changed - approvals cannot be transferred automatically"
 
