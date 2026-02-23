@@ -8,7 +8,7 @@ import PRTools.Config (trimTrailing)
 -- Generate a hash from the patch content, excluding metadata
 generatePatchHash :: String -> String -> IO String
 generatePatchHash baseCommit headCommit = do
-  patchContent <- readProcess "git" ["diff", baseCommit ++ ".." ++ headCommit] ""
+  patchContent <- readProcess "git" ["diff", baseCommit, headCommit] ""
   let normalizedPatch = normalizePatch patchContent
   return $ take 12 $ show $ abs $ hash normalizedPatch
 
@@ -20,7 +20,11 @@ normalizePatch patch =
       contentLines = filter (not . isPatchHeader) patchLines
       -- Normalize whitespace but preserve structure
       normalized = map normalizeWhitespace contentLines
-  in unlines normalized
+      -- Remove empty lines that might vary between diffs
+      nonEmpty = filter (not . null . trim) normalized
+  in unlines nonEmpty
+  where
+    trim = dropWhile (`elem` " \t") . reverse . dropWhile (`elem` " \t") . reverse
 
 -- Check if a line is a patch header that should be ignored for content comparison
 isPatchHeader :: String -> Bool
@@ -37,3 +41,17 @@ normalizeWhitespace line
   | "+" `isPrefixOf` line = "+" ++ (unwords . words . drop 1) line
   | "-" `isPrefixOf` line = "-" ++ (unwords . words . drop 1) line
   | otherwise = unwords . words $ line
+
+-- Debug function to compare patch content (for troubleshooting)
+debugPatchDifference :: String -> String -> String -> IO ()
+debugPatchDifference baseCommit oldCommit newCommit = do
+  oldPatch <- readProcess "git" ["diff", baseCommit, oldCommit] ""
+  newPatch <- readProcess "git" ["diff", baseCommit, newCommit] ""
+  let oldNormalized = normalizePatch oldPatch
+  let newNormalized = normalizePatch newPatch
+  putStrLn "=== OLD PATCH (normalized) ==="
+  putStrLn oldNormalized
+  putStrLn "=== NEW PATCH (normalized) ==="
+  putStrLn newNormalized
+  putStrLn "=== PATCHES EQUAL? ==="
+  putStrLn $ show (oldNormalized == newNormalized)

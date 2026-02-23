@@ -7,7 +7,7 @@ import System.IO (hPutStrLn, stderr)
 import System.Process (readProcess, readProcessWithExitCode)
 import PRTools.Config (trimTrailing, getBaseBranch)
 import PRTools.PRState
-import PRTools.ContentHash (generatePatchHash)
+import PRTools.ContentHash (generatePatchHash, debugPatchDifference)
 import Data.Time (getCurrentTime, formatTime)
 import Data.Time.Format (defaultTimeLocale)
 
@@ -17,6 +17,7 @@ data Command =
   | Record { rBranch :: Maybe String }
   | List
   | Rebase { reBranch :: Maybe String, reOldCommit :: String, reNewCommit :: Maybe String }
+  | Debug { dBranch :: Maybe String, dOldCommit :: String, dNewCommit :: Maybe String }
 
 commandParser :: Parser Command
 commandParser = subparser
@@ -29,6 +30,7 @@ commandParser = subparser
  <> command "rec" (info recordParser (progDesc "Shortcut for record"))
  <> command "list" (info (pure List) (progDesc "List tracked PRs"))
  <> command "rebase" (info rebaseParser (progDesc "Transfer approvals after rebase"))
+ <> command "debug" (info debugParser (progDesc "Debug content hash differences"))
   )
   where
     approveParser = Approve
@@ -43,6 +45,10 @@ commandParser = subparser
       <$> optional (strOption (long "branch" <> metavar "BRANCH" <> help "Branch that was rebased (default: current)"))
       <*> strOption (long "old-commit" <> metavar "HASH" <> help "Commit hash before rebase")
       <*> optional (strOption (long "new-commit" <> metavar "HASH" <> help "Commit hash after rebase (default: current HEAD)"))
+    debugParser = Debug
+      <$> optional (strOption (long "branch" <> metavar "BRANCH" <> help "Branch to debug (default: current)"))
+      <*> strOption (long "old-commit" <> metavar "HASH" <> help "Old commit hash")
+      <*> optional (strOption (long "new-commit" <> metavar "HASH" <> help "New commit hash (default: current HEAD)"))
 
 main :: IO ()
 main = do
@@ -161,3 +167,24 @@ main = do
         Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", branch] "")
       
       transferApprovalsAfterRebase branch oldCommit newCommit
+    Debug mbBranch oldCommit mbNewCommit -> do
+      branch <- case mbBranch of
+        Just b -> return b
+        Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
+      
+      newCommit <- case mbNewCommit of
+        Just c -> return c
+        Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", branch] "")
+      
+      base <- getBaseBranch
+      putStrLn $ "Debugging content hash difference between " ++ oldCommit ++ " and " ++ newCommit
+      putStrLn $ "Base branch: " ++ base
+      
+      oldHash <- generatePatchHash base oldCommit
+      newHash <- generatePatchHash base newCommit
+      
+      putStrLn $ "Old content hash: " ++ oldHash
+      putStrLn $ "New content hash: " ++ newHash
+      putStrLn $ "Hashes match: " ++ show (oldHash == newHash)
+      
+      debugPatchDifference base oldCommit newCommit
