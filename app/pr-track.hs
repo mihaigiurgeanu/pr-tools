@@ -167,7 +167,9 @@ main = do
               mapM_ (\(ci, s, _, _) -> do
                 isReviewed <- checkCommitReviewStatus branch (ciHash ci)
                 let reviewStatus = if isReviewed then ", reviewed" else ", not reviewed"
-                putStrLn $ "- " ++ take 7 (ciHash ci) ++ " " ++ ciMessage ci ++ " (" ++ s ++ reviewStatus ++ ")"
+                let boldStart = if s == "merged" || s == "pending" then "\ESC[1m" else ""
+                let boldEnd = if s == "merged" || s == "pending" then "\ESC[0m" else ""
+                putStrLn $ "- " ++ boldStart ++ take 7 (ciHash ci) ++ " " ++ ciMessage ci ++ " (" ++ s ++ reviewStatus ++ ")" ++ boldEnd
                 ) sorted_statuses
     Record mbBranch -> do
       branch <- case mbBranch of
