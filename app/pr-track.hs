@@ -180,13 +180,27 @@ main = do
     List -> do
       if Map.null state
         then putStrLn "No PRs tracked"
-        else Map.foldrWithKey (\b pr acc -> do
-          let status = prStatus pr
-          let approvalCount = length $ approvalHistory pr
-          let boldStart = if status == "open" || status == "stale" then "\ESC[1m" else ""
-          let boldEnd = if status == "open" || status == "stale" then "\ESC[0m" else ""
-          putStrLn $ boldStart ++ b ++ ": " ++ status ++ " (approvals: " ++ show approvalCount ++ ")" ++ boldEnd
-          acc) (return ()) state
+        else do
+          -- Convert to list and sort by most recent activity
+          let prList = Map.toList state
+          sortedPRs <- mapM (\(branch, pr) -> do
+            let lastActivity = if null (prSnapshots pr) 
+                              then "1970-01-01 00:00:00"  -- Very old date for PRs with no snapshots
+                              else psTimestamp (last (prSnapshots pr))
+            return (branch, pr, lastActivity)
+            ) prList
+          
+          let sortedByActivity = sortBy (\(_, _, time1) (_, _, time2) -> 
+                compare time2 time1  -- Most recent first
+                ) sortedPRs
+          
+          mapM_ (\(b, pr, _) -> do
+            let status = prStatus pr
+            let approvalCount = length $ approvalHistory pr
+            let boldStart = if status == "open" || status == "stale" then "\ESC[1m" else ""
+            let boldEnd = if status == "open" || status == "stale" then "\ESC[0m" else ""
+            putStrLn $ boldStart ++ b ++ ": " ++ status ++ " (approvals: " ++ show approvalCount ++ ")" ++ boldEnd
+            ) sortedByActivity
     Rebase mbBranch oldCommit mbNewCommit -> do
       branch <- case mbBranch of
         Just b -> return b
