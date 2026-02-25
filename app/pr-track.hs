@@ -180,7 +180,13 @@ main = do
     List -> do
       if Map.null state
         then putStrLn "No PRs tracked"
-        else Map.foldrWithKey (\b pr acc -> putStrLn (b ++ ": " ++ prStatus pr ++ " (approvals: " ++ show (length $ approvalHistory pr) ++ ")") >> acc) (return ()) state
+        else Map.foldrWithKey (\b pr acc -> do
+          let status = prStatus pr
+          let approvalCount = length $ approvalHistory pr
+          let boldStart = if status == "open" || status == "stale" then "\ESC[1m" else ""
+          let boldEnd = if status == "open" || status == "stale" then "\ESC[0m" else ""
+          putStrLn $ boldStart ++ b ++ ": " ++ status ++ " (approvals: " ++ show approvalCount ++ ")" ++ boldEnd
+          acc) (return ()) state
     Rebase mbBranch oldCommit mbNewCommit -> do
       branch <- case mbBranch of
         Just b -> return b
