@@ -11,6 +11,12 @@ import PRTools.ContentHash (generatePatchHash, debugPatchDifference)
 import Data.Time (getCurrentTime, formatTime)
 import Data.Time.Format (defaultTimeLocale)
 
+data Global = Global
+  { gBaseBranch :: Maybe String
+  }
+
+data App = App Global Command
+
 data Command =
     Approve { aBranch :: Maybe String, aBy :: String, aCommit :: Maybe String }
   | Status { sBranch :: Maybe String }
@@ -18,6 +24,13 @@ data Command =
   | List
   | Rebase { reBranch :: Maybe String, reOldCommit :: String, reNewCommit :: Maybe String }
   | Debug { dBranch :: Maybe String, dOldCommit :: String, dNewCommit :: Maybe String }
+
+globalParser :: Parser Global
+globalParser = Global
+  <$> optional (strOption (long "base" <> metavar "COMMIT" <> help "Override base branch with specific commit"))
+
+appParser :: Parser App
+appParser = App <$> globalParser <*> commandParser
 
 commandParser :: Parser Command
 commandParser = subparser
@@ -52,10 +65,15 @@ commandParser = subparser
 
 main :: IO ()
 main = do
-  cmd <- execParser $ info (commandParser <**> helper) 
+  App global cmd <- execParser $ info (appParser <**> helper) 
     ( fullDesc
    <> progDesc "Track PR approvals, status, and commit history"
    <> header "pr-track - PR tracking and approval management tool" )
+  
+  baseB <- case gBaseBranch global of
+    Just b -> return b
+    Nothing -> getBaseBranch
+  
   state <- loadState
   case cmd of
     Approve mbBranch by mbCommit -> do
@@ -67,7 +85,7 @@ main = do
         Just c -> return c
         Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", branch] "")
 
-      recordApproval branch by tip
+      recordApprovalWithBase branch by tip baseB
       putStrLn $ "Approved " ++ branch ++ " by " ++ by
     Status mbBranch -> do
       branch <- case mbBranch of
@@ -79,7 +97,7 @@ main = do
           putStrLn $ "Status: " ++ prStatus pr
           
           -- Check current valid approvals
-          validApprovals <- checkValidApprovals branch
+          validApprovals <- checkValidApprovalsWithBase branch baseB
           let allApprovers = nub (map apApprover (approvalHistory pr))
           let validApprovers = nub (map apApprover validApprovals)
           
@@ -105,7 +123,7 @@ main = do
               ) (approvalHistory pr)
 
           -- Check review status
-          (isReviewed, reviewers) <- checkReviewStatus branch
+          (isReviewed, reviewers) <- checkReviewStatusWithBase branch baseB
           putStr "Review Status: "
           if isReviewed
             then putStrLn $ "Reviewed by " ++ intercalate ", " reviewers
@@ -135,13 +153,12 @@ main = do
           if null (prSnapshots pr)
             then putStrLn "No snapshots recorded"
             else do
-              base <- getBaseBranch
               (code, out, _) <- readProcessWithExitCode "git" ["rev-parse", "--verify", branch] ""
               let branch_exists = code == ExitSuccess
               let branch_tip = if branch_exists then trimTrailing out else ""
               let all_commits = foldl (\m ps -> foldl (\m' ci -> if Map.member (ciHash ci) m' then m' else Map.insert (ciHash ci) (ci, psTimestamp ps) m') m (psCommits ps)) Map.empty (prSnapshots pr)
               temp_list <- mapM (\(ci, ts) -> do
-                is_m <- isAncestor (ciHash ci) base
+                is_m <- isAncestor (ciHash ci) baseB
                 is_p <- if not branch_exists then return False else isAncestor (ciHash ci) branch_tip
                 let s = if is_m then "merged" else if is_p then "pending" else "removed"
                 -- Get the actual commit timestamp from git
@@ -161,11 +178,11 @@ main = do
               let hash_to_s = Map.fromList [ (ciHash ci, s) | (ci, s, _, _) <- temp_list ]
               let all_latest_merged = not (null latest_hashes) && all (\h -> Map.lookup h hash_to_s == Just "merged") latest_hashes
               if all_latest_merged
-                then putStrLn $ "PR is fully merged into " ++ base
+                then putStrLn $ "PR is fully merged into " ++ baseB
                 else return ()
               putStrLn "All historical commits:"
               mapM_ (\(ci, s, _, _) -> do
-                isReviewed <- checkCommitReviewStatus branch (ciHash ci)
+                isReviewed <- checkCommitReviewStatusWithBase branch (ciHash ci) baseB
                 let reviewStatus = if isReviewed then ", reviewed" else ", not reviewed"
                 let boldStart = if s == "merged" || s == "pending" then "\ESC[1m" else ""
                 let boldEnd = if s == "merged" || s == "pending" then "\ESC[0m" else ""
@@ -175,7 +192,7 @@ main = do
       branch <- case mbBranch of
         Just b -> return b
         Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
-      msg <- recordPR branch
+      msg <- recordPRWithBase branch baseB
       putStrLn $ "Recorded snapshot for " ++ branch ++ (if null msg then "" else ". " ++ msg)
     List -> do
       if Map.null state
@@ -210,7 +227,7 @@ main = do
         Just c -> return c
         Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", branch] "")
       
-      transferApprovalsAfterRebase branch oldCommit newCommit
+      transferApprovalsAfterRebaseWithBase branch oldCommit newCommit baseB
     Debug mbBranch oldCommit mbNewCommit -> do
       branch <- case mbBranch of
         Just b -> return b
@@ -220,15 +237,14 @@ main = do
         Just c -> return c
         Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", branch] "")
       
-      base <- getBaseBranch
       putStrLn $ "Debugging content hash difference between " ++ oldCommit ++ " and " ++ newCommit
-      putStrLn $ "Base branch: " ++ base
+      putStrLn $ "Base branch: " ++ baseB
       
-      oldHash <- generatePatchHash base oldCommit
-      newHash <- generatePatchHash base newCommit
+      oldHash <- generatePatchHash baseB oldCommit
+      newHash <- generatePatchHash baseB newCommit
       
       putStrLn $ "Old content hash: " ++ oldHash
       putStrLn $ "New content hash: " ++ newHash
       putStrLn $ "Hashes match: " ++ show (oldHash == newHash)
       
-      debugPatchDifference base oldCommit newCommit
+      debugPatchDifference baseB oldCommit newCommit

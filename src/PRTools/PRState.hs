@@ -193,9 +193,13 @@ isAncestor commit branch = do
 
 recordPR :: String -> IO String
 recordPR branch = do
+  base <- getBaseBranch
+  recordPRWithBase branch base
+
+recordPRWithBase :: String -> String -> IO String
+recordPRWithBase branch base = do
   state <- loadState
   let existing = Map.lookup branch state
-  base <- getBaseBranch
   (branchExists, commits) <- do
     (code, out, _) <- readProcessWithExitCode "git" ["rev-parse", "--verify", branch] ""
     if code == ExitSuccess
@@ -339,11 +343,15 @@ recordFixEvent branch fixer action = do
 -- Check if approvals are still valid for the current branch state
 checkValidApprovals :: String -> IO [Approval]
 checkValidApprovals branch = do
+  base <- getBaseBranch
+  checkValidApprovalsWithBase branch base
+
+checkValidApprovalsWithBase :: String -> String -> IO [Approval]
+checkValidApprovalsWithBase branch base = do
   state <- loadState
   case Map.lookup branch state of
     Nothing -> return []
     Just pr -> do
-      base <- getBaseBranch
       (code, out, _) <- readProcessWithExitCode "git" ["rev-parse", branch] ""
       if code /= ExitSuccess
         then return [] -- Branch doesn't exist, no valid approvals
@@ -375,11 +383,15 @@ checkValidApprovals branch = do
 -- Transfer approvals after a rebase by updating commit hashes while preserving content hashes
 transferApprovalsAfterRebase :: String -> String -> String -> IO ()
 transferApprovalsAfterRebase branch oldCommit newCommit = do
+  base <- getBaseBranch
+  transferApprovalsAfterRebaseWithBase branch oldCommit newCommit base
+
+transferApprovalsAfterRebaseWithBase :: String -> String -> String -> String -> IO ()
+transferApprovalsAfterRebaseWithBase branch oldCommit newCommit base = do
   state <- loadState
   case Map.lookup branch state of
     Nothing -> putStrLn "No PR state found for branch"
     Just pr -> do
-      base <- getBaseBranch
       oldContentHash <- generatePatchHash base oldCommit
       newContentHash <- generatePatchHash base newCommit
       
@@ -415,10 +427,14 @@ transferApprovalsAfterRebase branch oldCommit newCommit = do
 
 recordApproval :: String -> String -> String -> IO ()
 recordApproval branch approver commitHash = do
+  base <- getBaseBranch
+  recordApprovalWithBase branch approver commitHash base
+
+recordApprovalWithBase :: String -> String -> String -> String -> IO ()
+recordApprovalWithBase branch approver commitHash base = do
   state <- loadState
   let pr = Map.findWithDefault (PRState "open" [] [] [] [] Nothing) branch state
   
-  base <- getBaseBranch
   logOut <- readProcess "git" ["log", "--format=%H %s", base ++ ".." ++ commitHash, "--"] ""
   let commitLines = lines logOut
   let commits = map (\ln -> let h = take 40 ln
@@ -440,11 +456,15 @@ recordApproval branch approver commitHash = do
 -- Check if current content has been reviewed
 checkReviewStatus :: String -> IO (Bool, [String])
 checkReviewStatus branch = do
+  base <- getBaseBranch
+  checkReviewStatusWithBase branch base
+
+checkReviewStatusWithBase :: String -> String -> IO (Bool, [String])
+checkReviewStatusWithBase branch base = do
   state <- loadState
   case Map.lookup branch state of
     Nothing -> return (False, [])
     Just pr -> do
-      base <- getBaseBranch
       (code, out, _) <- readProcessWithExitCode "git" ["rev-parse", branch] ""
       if code /= ExitSuccess
         then do
@@ -507,6 +527,11 @@ checkReviewStatus branch = do
 -- Check if a specific commit has been reviewed
 checkCommitReviewStatus :: String -> String -> IO Bool
 checkCommitReviewStatus branch commitHash = do
+  base <- getBaseBranch
+  checkCommitReviewStatusWithBase branch commitHash base
+
+checkCommitReviewStatusWithBase :: String -> String -> String -> IO Bool
+checkCommitReviewStatusWithBase branch commitHash base = do
   state <- loadState
   case Map.lookup branch state of
     Nothing -> return False
@@ -522,7 +547,6 @@ checkCommitReviewStatus branch commitHash = do
         then return True
         else do
           -- Fall back to legacy format for backward compatibility
-          base <- getBaseBranch
           (code, _, _) <- readProcessWithExitCode "git" ["rev-parse", "--verify", commitHash] ""
           if code /= ExitSuccess
             then return False -- Commit doesn't exist
