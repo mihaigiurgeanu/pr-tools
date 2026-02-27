@@ -143,12 +143,12 @@ Track PR approvals and status.
 Subcommands:
 
 ```
-pr-track approve [BRANCH] --by NAME
-pr-track status [BRANCH]
-pr-track record [BRANCH]
-pr-track update [BRANCH]
+pr-track [--base COMMIT] approve [BRANCH] --by NAME
+pr-track [--base COMMIT] status [BRANCH]
+pr-track [--base COMMIT] record [BRANCH]
+pr-track [--base COMMIT] update [BRANCH]
 pr-track list
-pr-track rebase --old-commit HASH [--branch BRANCH] [--new-commit HASH]
+pr-track [--base COMMIT] rebase --old-commit HASH [--branch BRANCH] [--new-commit HASH]
 ```
 
 - `approve [BRANCH] --by NAME`: Approve the PR by the given name. `BRANCH` defaults to current.
@@ -156,6 +156,28 @@ pr-track rebase --old-commit HASH [--branch BRANCH] [--new-commit HASH]
 - `record [BRANCH]`: Record or update the commit snapshot for the PR. Synonyms: update, u, r, rec. `BRANCH` defaults to current.
 - `list`: List all tracked PRs with status and approval counts.
 - `rebase --old-commit HASH [--branch BRANCH] [--new-commit HASH]`: Transfer approvals after a rebase if the content hasn't changed. `BRANCH` defaults to current, `--new-commit` defaults to current HEAD.
+- `--base COMMIT`: Override the base branch with a specific commit hash. Useful for reconstructing PR history after merges and rebases.
+
+#### PR History Reconstruction
+
+When a PR has been merged and the original branch deleted or rebased, you can still update the PR tracking status by manually specifying the base commit that was used before the PR was merged:
+
+1. **Find the merge base**: Look at the git history to identify the commit that was the base before the PR was merged:
+   ```bash
+   git log --oneline master | head -20
+   ```
+
+2. **Update with custom base**: Use the `--base` option to specify that commit:
+   ```bash
+   pr-track --base abc1234 update feature-branch
+   ```
+
+This is particularly useful when:
+- A reviewer tracked a PR, then the developer rebased/squashed commits before merging
+- The original branch no longer exists but you want to update the PR status
+- You need to reconstruct the commit history for a merged PR
+
+The tool will use the specified commit as the base instead of the configured base branch, allowing proper reconstruction of the PR's commit list even after complex git operations.
 
 ### pr-merge
 
