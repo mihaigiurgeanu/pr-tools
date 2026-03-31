@@ -20,7 +20,7 @@ data App = App Global Command
 data Command =
     Approve { aBranch :: Maybe String, aBy :: String, aCommit :: Maybe String }
   | Status { sBranch :: Maybe String }
-  | Record { rBranch :: Maybe String }
+  | Record { rBranch :: Maybe String, rTip :: Maybe String }
   | List
   | Rebase { reBranch :: Maybe String, reOldCommit :: String, reNewCommit :: Maybe String }
   | Debug { dBranch :: Maybe String, dOldCommit :: String, dNewCommit :: Maybe String }
@@ -54,6 +54,7 @@ commandParser = subparser
       <$> optional (strArgument (metavar "BRANCH" <> help "Branch to check (default: current)"))
     recordParser = Record
       <$> optional (strArgument (metavar "BRANCH" <> help "Branch to record (default: current)"))
+      <*> optional (strOption (long "tip" <> metavar "TIP" <> help "The tip commit of the PR (default BRANCH)"))
     rebaseParser = Rebase
       <$> optional (strOption (long "branch" <> metavar "BRANCH" <> help "Branch that was rebased (default: current)"))
       <*> strOption (long "old-commit" <> metavar "HASH" <> help "Commit hash before rebase")
@@ -188,11 +189,13 @@ main = do
                 let boldEnd = if s == "merged" || s == "pending" then "\ESC[0m" else ""
                 putStrLn $ "- " ++ boldStart ++ take 7 (ciHash ci) ++ " " ++ ciMessage ci ++ " (" ++ s ++ reviewStatus ++ ")" ++ boldEnd
                 ) sorted_statuses
-    Record mbBranch -> do
+    Record mbBranch mbTip -> do
       branch <- case mbBranch of
         Just b -> return b
         Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
-      msg <- recordPRWithBase branch baseB
+      msg <- case mbTip of
+        Just t -> recordPRWithBaseAndTip branch baseB t
+        Nothing -> recordPRWithBase branch baseB
       putStrLn $ "Recorded snapshot for " ++ branch ++ (if null msg then "" else ". " ++ msg)
     List -> do
       if Map.null state

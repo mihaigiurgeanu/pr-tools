@@ -197,14 +197,72 @@ recordPR branch = do
   recordPRWithBase branch base
 
 recordPRWithBase :: String -> String -> IO String
-recordPRWithBase branch base = do
+recordPRWithBase branch base = recordPRWithBaseAndTip branch base branch
+
+
+-- Helper function to update PR state with new commits and determine status
+updatePRStateWithCommits :: PRState -> String -> String -> String -> [CommitInfo] -> Bool -> IO (PRState, String)
+updatePRStateWithCommits existingState branch base tip commits branchExists = do
+  currentTime <- getCurrentTime
+  let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
+  let updatedSnapshots = if null commits
+                         then prSnapshots existingState
+                         else prSnapshots existingState ++ [PRSnapshot timeStr commits]
+
+  staleDays <- getStaleDays
+  let snapsForStale = if null updatedSnapshots then prSnapshots existingState else updatedSnapshots
+  let isStale = case snapsForStale of
+                  [] -> False
+                  snaps -> let lastSnap = last snaps
+                               lastTimeM = parseTimeM True defaultTimeLocale "%Y-%m-%d %H:%M:%S" (psTimestamp lastSnap)
+                           in case lastTimeM of
+                                Just lastTime -> diffUTCTime currentTime lastTime > fromIntegral (staleDays * 86400) && null commits
+                                Nothing -> False
+  let statusAfterStale = if isStale && prStatus existingState /= "stale" && prStatus existingState /= "merged" then "stale" else prStatus existingState
+
+  let checkCommits = if not (null commits) then commits else if null (prSnapshots existingState) then [] else psCommits (last (prSnapshots existingState))
+  let
+    reachable :: String -> IO Bool
+    reachable commit = and <$> mapM (\ci -> isAncestor (ciHash ci) commit) checkCommits
+  allMerged <- if null checkCommits then return False else reachable base
+  
+   -- Check if all commits are removed (only for existing PRs)
+  allRemoved <- if null checkCommits || prStatus existingState == "open" then return False else
+    if branchExists then do
+      -- Branch exists, check if commits are reachable from it
+      branchReachable <- reachable branch
+      return (not branchReachable)
+    else if tip /= branch then do
+           -- Branch does not exist, but we are using a custom tip
+           tipReachable <- reachable tip
+           return (not tipReachable)
+         else do
+           -- Branch doesn't exist, commits are removed if not in base
+           baseReachable <- reachable base
+           return (not baseReachable)
+  
+  let finalStatus = if allMerged then "merged" 
+                   else if allRemoved then "removed"
+                   else statusAfterStale
+
+  let updated = existingState { prSnapshots = updatedSnapshots, prStatus = finalStatus }
+  let msg = if finalStatus /= prStatus existingState
+            then "Status updated to " ++ finalStatus
+            else if null commits
+                 then "No update performed"
+                 else ""
+  let extraMsg = if not branchExists then " (branch does not exist; using latest snapshot for checks)" else ""
+  return (updated, msg ++ extraMsg)
+
+recordPRWithBaseAndTip :: String -> String -> String -> IO String
+recordPRWithBaseAndTip branch base tip = do
   state <- loadState
   let existing = Map.lookup branch state
   (branchExists, commits) <- do
     (code, out, _) <- readProcessWithExitCode "git" ["rev-parse", "--verify", branch] ""
     if code == ExitSuccess
       then do
-        logOut <- readProcess "git" ["log", "--format=%H %s", base ++ ".." ++ branch, "--"] ""
+        logOut <- readProcess "git" ["log", "--format=%H %s", base ++ ".." ++ tip, "--"] ""
         let commitLines = lines logOut
         let cs = map (\ln -> let h = take 40 ln
                                  m = drop 41 ln
@@ -219,80 +277,16 @@ recordPRWithBase branch base = do
           hPutStrLn stderr $ "Branch " ++ branch ++ " does not exist and is not tracked."
           exitFailure
         else do
-          let ex = PRState "open" [] [] [] [] Nothing
-          currentTime <- getCurrentTime
-          let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
-          let newSnapshot = PRSnapshot timeStr commits
-          let updatedSnapshots = prSnapshots ex ++ [newSnapshot]
-
-          staleDays <- getStaleDays
-          let snapsForStale = if null updatedSnapshots then prSnapshots ex else updatedSnapshots
-          let isStale = case snapsForStale of
-                          [] -> False
-                          snaps -> let lastSnap = last snaps
-                                       lastTimeM = parseTimeM True defaultTimeLocale "%Y-%m-%d %H:%M:%S" (psTimestamp lastSnap)
-                                   in case lastTimeM of
-                                        Just lastTime -> diffUTCTime currentTime lastTime > fromIntegral (staleDays * 86400) && null commits
-                                        Nothing -> False
-          let statusAfterStale = if isStale && prStatus ex /= "stale" && prStatus ex /= "merged" then "stale" else prStatus ex
-
-          let checkCommits = commits
-          allMerged <- if null checkCommits then return False else and <$> mapM (\ci -> isAncestor (ciHash ci) base) checkCommits
-          let finalStatus = if allMerged && statusAfterStale /= "merged" then "merged" else statusAfterStale
-
-          let updated = ex { prSnapshots = updatedSnapshots, prStatus = finalStatus }
+          let initialState = PRState "open" [] [] [] [] Nothing
+          (updated, msg) <- updatePRStateWithCommits initialState branch base tip commits branchExists
           let newState = Map.insert branch updated state
           saveState newState
-          let msg = if finalStatus /= prStatus ex then "Status updated to " ++ finalStatus else ""
           return $ msg ++ " (new tracking started)"
     Just ex -> do
-      currentTime <- getCurrentTime
-      let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
-      let updatedSnapshots = if null commits
-                             then prSnapshots ex
-                             else prSnapshots ex ++ [PRSnapshot timeStr commits]
-
-      staleDays <- getStaleDays
-      let snapsForStale = if null updatedSnapshots then prSnapshots ex else updatedSnapshots
-      let isStale = case snapsForStale of
-                      [] -> False
-                      snaps -> let lastSnap = last snaps
-                                   lastTimeM = parseTimeM True defaultTimeLocale "%Y-%m-%d %H:%M:%S" (psTimestamp lastSnap)
-                               in case lastTimeM of
-                                    Just lastTime -> diffUTCTime currentTime lastTime > fromIntegral (staleDays * 86400) && null commits
-                                    Nothing -> False
-      let statusAfterStale = if isStale && prStatus ex /= "stale" && prStatus ex /= "merged" then "stale" else prStatus ex
-
-      let checkCommits = if not (null commits) then commits else if null (prSnapshots ex) then [] else psCommits (last (prSnapshots ex))
-      allMerged <- if null checkCommits then return False else and <$> mapM (\ci -> isAncestor (ciHash ci) base) checkCommits
-      
-      -- Check if all commits are removed (not reachable from branch or base)
-      allRemoved <- if null checkCommits then return False else do
-        -- Check if branch exists
-        (branchCode, _, _) <- readProcessWithExitCode "git" ["rev-parse", "--verify", branch] ""
-        if branchCode == ExitSuccess then do
-          -- Branch exists, check if commits are reachable from it
-          branchReachable <- and <$> mapM (\ci -> isAncestor (ciHash ci) branch) checkCommits
-          return (not branchReachable)
-        else do
-          -- Branch doesn't exist, commits are removed if not in base
-          baseReachable <- and <$> mapM (\ci -> isAncestor (ciHash ci) base) checkCommits
-          return (not baseReachable)
-      
-      let finalStatus = if allMerged then "merged" 
-                       else if allRemoved then "removed"
-                       else statusAfterStale
-
-      let updated = ex { prSnapshots = updatedSnapshots, prStatus = finalStatus }
+      (updated, msg) <- updatePRStateWithCommits ex branch base tip commits branchExists
       let newState = Map.insert branch updated state
       saveState newState
-      let msg = if finalStatus /= prStatus ex
-                then "Status updated to " ++ finalStatus
-                else if null commits
-                     then "No update performed"
-                     else ""
-      let extraMsg = if not branchExists then " (branch does not exist; using latest snapshot for checks)" else ""
-      return $ msg ++ extraMsg
+      return msg
 
 recordReviewEvent :: String -> String -> String -> IO ()
 recordReviewEvent branch reviewer action = do
