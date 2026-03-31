@@ -259,16 +259,23 @@ recordPRWithBaseAndTip branch base tip = do
   state <- loadState
   let existing = Map.lookup branch state
   (branchExists, commits) <- do
-    (code, out, _) <- readProcessWithExitCode "git" ["rev-parse", "--verify", branch] ""
-    if code == ExitSuccess
+    (code, out, _) <- readProcessWithExitCode "git" ["rev-parse", "--verify", tip] ""
+    cs <- if code == ExitSuccess
       then do
         logOut <- readProcess "git" ["log", "--format=%H %s", base ++ ".." ++ tip, "--"] ""
         let commitLines = lines logOut
         let cs = map (\ln -> let h = take 40 ln
                                  m = drop 41 ln
                              in CommitInfo h m) (filter (not . null) commitLines)
+        return cs
+      else
+       return []
+      
+    (code, out, _) <- readProcessWithExitCode "git" ["rev-parse", "--verify", branch] ""
+    if code == ExitSuccess
+      then do
         return (True, cs)
-      else return (False, [])
+      else return (False, cs)
 
   case existing of
     Nothing -> do
