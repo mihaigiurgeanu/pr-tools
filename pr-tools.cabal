@@ -1,6 +1,6 @@
 cabal-version:       3.0
 name:                pr-tools
-version:             0.2.0.0
+version:             0.2.1.0
 synopsis:            Decentralized git pull request and code review flows
 description:         A set of command-line tools for managing descentralized
                      git pull requests and code review workflows. These tools
