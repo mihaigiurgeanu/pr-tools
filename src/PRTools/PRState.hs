@@ -16,17 +16,23 @@ import PRTools.ContentHash (generatePatchHash)
 import System.Exit (ExitCode(..))
 import Data.List (nub)
 
-data CommitInfo = CommitInfo { ciHash :: String, ciMessage :: String } deriving (Eq, Show)
+data CommitInfo = CommitInfo 
+  { ciHash :: String
+  , ciMessage :: String
+  , ciTimestamp :: Maybe Int  -- Unix timestamp, Nothing for legacy commits
+  } deriving (Eq, Show)
 
 instance FromJSON CommitInfo where
   parseJSON = withObject "CommitInfo" $ \v -> CommitInfo
     <$> v .: fromString "hash"
     <*> v .: fromString "message"
+    <*> v .:? fromString "timestamp"
 
 instance ToJSON CommitInfo where
   toJSON ci = object
     [ fromString "hash" .= ciHash ci
     , fromString "message" .= ciMessage ci
+    , fromString "timestamp" .= ciTimestamp ci
     ]
 
 data PRSnapshot = PRSnapshot { psTimestamp :: String, psCommits :: [CommitInfo] } deriving (Eq, Show)
@@ -191,6 +197,19 @@ isAncestor commit branch = do
   (code, _, _) <- readProcessWithExitCode "git" ["merge-base", "--is-ancestor", commit, branch] ""
   return (code == ExitSuccess)
 
+-- Helper function to extract CommitInfo from git log between base and tip
+getCommitInfoBetween :: String -> String -> IO [CommitInfo]
+getCommitInfoBetween base tip = do
+  logOut <- readProcess "git" ["log", "--format=%H %s", base ++ ".." ++ tip, "--"] ""
+  let commitLines = lines logOut
+  mapM (\ln -> do
+    let h = take 40 ln
+    let m = drop 41 ln
+    timestampStr <- trimTrailing <$> readProcess "git" ["log", "-1", "--format=%ct", h] ""
+    let timestamp = read timestampStr :: Int
+    return (CommitInfo h m (Just timestamp))
+    ) (filter (not . null) commitLines)
+
 recordPR :: String -> IO String
 recordPR branch = do
   base <- getBaseBranch
@@ -261,20 +280,12 @@ recordPRWithBaseAndTip branch base tip = do
   (branchExists, commits) <- do
     (code, out, _) <- readProcessWithExitCode "git" ["rev-parse", "--verify", tip] ""
     cs <- if code == ExitSuccess
-      then do
-        logOut <- readProcess "git" ["log", "--format=%H %s", base ++ ".." ++ tip, "--"] ""
-        let commitLines = lines logOut
-        let cs = map (\ln -> let h = take 40 ln
-                                 m = drop 41 ln
-                             in CommitInfo h m) (filter (not . null) commitLines)
-        return cs
-      else
-       return []
+      then getCommitInfoBetween base tip
+      else return []
       
     (code, out, _) <- readProcessWithExitCode "git" ["rev-parse", "--verify", branch] ""
     if code == ExitSuccess
-      then do
-        return (True, cs)
+      then return (True, cs)
       else return (False, cs)
 
   case existing of
@@ -402,11 +413,7 @@ transferApprovalsAfterRebaseWithBase branch oldCommit newCommit base = do
       -- Only transfer if content is the same
       if oldContentHash == newContentHash then do
         -- Get new commit list
-        logOut <- readProcess "git" ["log", "--format=%H %s", base ++ ".." ++ newCommit, "--"] ""
-        let commitLines = lines logOut
-        let newCommits = map (\ln -> let h = take 40 ln
-                                         m = drop 41 ln
-                                     in CommitInfo h m) (filter (not . null) commitLines)
+        newCommits <- getCommitInfoBetween base newCommit
         
         putStrLn $ "Found " ++ show (length (approvalHistory pr)) ++ " approvals to check"
         
@@ -436,11 +443,7 @@ recordApprovalWithBase branch approver commitHash base = do
   state <- loadState
   let pr = Map.findWithDefault (PRState "open" [] [] [] [] Nothing) branch state
   
-  logOut <- readProcess "git" ["log", "--format=%H %s", base ++ ".." ++ commitHash, "--"] ""
-  let commitLines = lines logOut
-  let commits = map (\ln -> let h = take 40 ln
-                                m = drop 41 ln
-                            in CommitInfo h m) (filter (not . null) commitLines)
+  commits <- getCommitInfoBetween base commitHash
 
   -- Generate content hash for the patch
   contentHash <- generatePatchHash base commitHash
@@ -524,6 +527,61 @@ checkReviewStatusWithBase branch base = do
       flg <- p x
       ys <- filterM p xs
       return (if flg then x:ys else ys)
+
+-- Migration functions to add timestamps to legacy commits
+migrateCommitTimestamps :: Map.Map String PRState -> IO (Map.Map String PRState)
+migrateCommitTimestamps state = do
+  putStrLn $ "Migrating " ++ show (Map.size state) ++ " PRs..."
+  Map.traverseWithKey (\branch pr -> do
+    putStrLn $ "Migrating PR: " ++ branch
+    migratePRCommits pr
+    ) state
+
+migratePRCommits :: PRState -> IO PRState
+migratePRCommits pr = do
+  -- Migrate snapshots
+  migratedSnapshots <- mapM migrateSnapshot (prSnapshots pr)
+  -- Migrate approval history
+  migratedApprovals <- mapM migrateApproval (approvalHistory pr)
+  -- Migrate merge info
+  migratedMergeInfo <- case prMergeInfo pr of
+    Just mi -> Just <$> migrateMergeInfo mi
+    Nothing -> return Nothing
+  
+  return pr { prSnapshots = migratedSnapshots
+            , approvalHistory = migratedApprovals  
+            , prMergeInfo = migratedMergeInfo }
+
+migrateSnapshot :: PRSnapshot -> IO PRSnapshot
+migrateSnapshot ps = do
+  migratedCommits <- mapM migrateCommitInfo (psCommits ps)
+  return ps { psCommits = migratedCommits }
+
+migrateApproval :: Approval -> IO Approval
+migrateApproval ap = do
+  migratedCommits <- mapM migrateCommitInfo (apCommits ap)
+  return ap { apCommits = migratedCommits }
+
+migrateMergeInfo :: MergeInfo -> IO MergeInfo
+migrateMergeInfo mi = do
+  migratedCommits <- mapM migrateCommitInfo (miCommits mi)
+  return mi { miCommits = migratedCommits }
+
+migrateCommitInfo :: CommitInfo -> IO CommitInfo
+migrateCommitInfo ci = case ciTimestamp ci of
+  Just _ -> return ci  -- Already has timestamp
+  Nothing -> do
+    -- Try to get timestamp from git
+    (code, out, _) <- readProcessWithExitCode "git" ["log", "-1", "--format=%ct", ciHash ci] ""
+    if code == ExitSuccess
+      then do
+        let timestamp = read (trimTrailing out) :: Int
+        putStrLn $ "  Migrated commit " ++ take 7 (ciHash ci) ++ " with timestamp " ++ show timestamp
+        return ci { ciTimestamp = Just timestamp }
+      else do
+        -- Commit doesn't exist anymore, use epoch time as fallback
+        putStrLn $ "  Commit " ++ take 7 (ciHash ci) ++ " not found, using epoch time"
+        return ci { ciTimestamp = Just 0 }
 
 -- Check if a specific commit has been reviewed
 checkCommitReviewStatus :: String -> String -> IO Bool

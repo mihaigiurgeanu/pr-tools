@@ -24,6 +24,7 @@ data Command =
   | List
   | Rebase { reBranch :: Maybe String, reOldCommit :: String, reNewCommit :: Maybe String }
   | Debug { dBranch :: Maybe String, dOldCommit :: String, dNewCommit :: Maybe String }
+  | Migrate
 
 globalParser :: Parser Global
 globalParser = Global
@@ -44,6 +45,7 @@ commandParser = subparser
  <> command "list" (info (pure List <**> helper) (progDesc "List all tracked PRs with status"))
  <> command "rebase" (info (rebaseParser <**> helper) (progDesc "Transfer approvals after rebase if content unchanged"))
  <> command "debug" (info (debugParser <**> helper) (progDesc "Debug content hash differences between commits"))
+ <> command "migrate" (info (pure Migrate <**> helper) (progDesc "Migrate legacy commit info to include timestamps"))
   )
   where
     approveParser = Approve
@@ -162,9 +164,15 @@ main = do
                 is_m <- isAncestor (ciHash ci) baseB
                 is_p <- if not branch_exists then return False else isAncestor (ciHash ci) branch_tip
                 let s = if is_m then "merged" else if is_p then "pending" else "removed"
-                -- Get the actual commit timestamp from git
-                commitTime <- trimTrailing <$> readProcess "git" ["log", "-1", "--format=%ct", ciHash ci] ""
-                let commitTimestamp = read commitTime :: Int
+                -- Use stored timestamp if available, otherwise fall back to git (for legacy commits)
+                commitTimestamp <- case ciTimestamp ci of
+                  Just timestamp -> return timestamp
+                  Nothing -> do
+                    -- Try to get timestamp from git, but handle case where commit might not exist
+                    (code, out, _) <- readProcessWithExitCode "git" ["log", "-1", "--format=%ct", ciHash ci] ""
+                    if code == ExitSuccess
+                      then return (read (trimTrailing out) :: Int)
+                      else return 0  -- Use epoch time as fallback for missing commits
                 return (ci, s, ts, commitTimestamp)
                 ) (Map.elems all_commits)
               let sorted_statuses = sortBy (\(_,_,_,t1) (_,_,_,t2) -> compare t2 t1) temp_list -- newest first
@@ -251,3 +259,8 @@ main = do
       putStrLn $ "Hashes match: " ++ show (oldHash == newHash)
       
       debugPatchDifference baseB oldCommit newCommit
+    Migrate -> do
+      putStrLn "Migrating legacy commit data to include timestamps..."
+      migratedState <- migrateCommitTimestamps state
+      saveState migratedState
+      putStrLn "Migration complete. All legacy commits now have timestamps."

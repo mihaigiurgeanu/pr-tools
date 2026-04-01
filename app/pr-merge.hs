@@ -65,10 +65,7 @@ main = do
                hPutStrLn stderr $ "PR " ++ branch ++ " has new commits since approval. Please request re-approval."
                exitFailure
             else do
-               logOutBefore <- readProcess "git" ["log", "--format=%H %s", baseB ++ ".." ++ branch, "--"] ""
-               let commitLinesBefore = lines logOutBefore
-
-               let commits = map (uncurry CommitInfo . (\ln -> (take 40 ln, drop 41 ln))) (filter (not . null) commitLinesBefore)
+               commits <- getCommitInfoBetween baseB branch
                callProcess "git" ["checkout", baseB]
                case strategy of
                  "fast-forward" -> callProcess "git" ["merge", "--ff-only", branch]
