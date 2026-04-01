@@ -209,13 +209,24 @@ main = do
       if Map.null state
         then putStrLn "No PRs tracked"
         else do
-          -- Convert to list and sort by most recent activity
+          -- Convert to list and sort by most recent commit in latest snapshot
           let prList = Map.toList state
           sortedPRs <- mapM (\(branch, pr) -> do
-            let lastActivity = if null (prSnapshots pr) 
-                              then "1970-01-01 00:00:00"  -- Very old date for PRs with no snapshots
-                              else psTimestamp (last (prSnapshots pr))
-            return (branch, pr, lastActivity)
+            latestCommitTime <- if null (prSnapshots pr) 
+              then return 0  -- Very old timestamp for PRs with no snapshots
+              else do
+                let latestSnapshot = last (prSnapshots pr)
+                let commits = psCommits latestSnapshot
+                if null commits
+                  then return 0
+                  else do
+                    -- Get the latest commit timestamp from the latest snapshot
+                    let commitTimestamps = map (\ci -> case ciTimestamp ci of
+                          Just ts -> ts
+                          Nothing -> 0  -- Fallback for legacy commits
+                          ) commits
+                    return (maximum commitTimestamps)
+            return (branch, pr, latestCommitTime)
             ) prList
           
           let sortedByActivity = sortBy (\(_, _, time1) (_, _, time2) -> 
