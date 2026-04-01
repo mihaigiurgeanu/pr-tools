@@ -20,3 +20,5 @@
 - Merged feature/udpate-pr-with-base-and-tip using fast-forward on 2026-03-31
 
 - Merged fix/updating-pr-for-non-existing-branch using fast-forward on 2026-03-31
+
+- Merged fix/pr-track-status-inexisting-commit using fast-forward on 2026-04-01
