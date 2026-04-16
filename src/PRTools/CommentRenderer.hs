@@ -164,13 +164,13 @@ displayComments branch cmts withCtx = do
     else
     mapM_ (\c -> do
       let statusIcon = case cmStatus c of
-            "solved" -> "✅"
-            "not-solved" -> "❌" 
-            "in-progress" -> "⏳"
-            _ -> "📝"
+            "solved" -> "[✓]"
+            "not-solved" -> "[✗]" 
+            "in-progress" -> "[~]"
+            _ -> "[?]"
       let resolvedText = if cmResolved c then " [RESOLVED]" else ""
-      putStrLn $ "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      putStrLn $ "📍 " ++ cmFile c ++ ":" ++ show (cmLine c) ++ " [ID: " ++ cmId c ++ "]" ++ resolvedText
+      putStrLn $ "=========================================================================="
+      putStrLn $ "* " ++ cmFile c ++ ":" ++ show (cmLine c) ++ " [ID: " ++ cmId c ++ "]" ++ resolvedText
       putStrLn ""
       putStrLn $ "Comment:"
       putStrLn $ "  " ++ intercalate "\n  " (lines (trim (cmText c)))
@@ -179,7 +179,7 @@ displayComments branch cmts withCtx = do
       case cmAnswer c of
         Nothing -> return ()
         Just answer -> do
-          putStrLn $ "💬 Answer:"
+          putStrLn $ ">> Answer:"
           putStrLn $ "  " ++ intercalate "\n  " (lines (trim answer))
       putStrLn ""
       ) cmts
