@@ -24,3 +24,5 @@
 - Merged fix/pr-track-status-inexisting-commit using fast-forward on 2026-04-01
 
 - Merged fix/order-prs-by-latest-commit using fast-forward on 2026-04-01
+
+- Merged feat/more-readable-comments using fast-forward on 2026-04-16
