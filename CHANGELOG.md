@@ -26,3 +26,5 @@
 - Merged fix/order-prs-by-latest-commit using fast-forward on 2026-04-01
 
 - Merged feat/more-readable-comments using fast-forward on 2026-04-16
+
+- Merged fix/unicode-emoji-not-visible-on-xterm using fast-forward on 2026-04-16
