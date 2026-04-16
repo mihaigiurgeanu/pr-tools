@@ -162,6 +162,26 @@ displayComments branch cmts withCtx = do
       putStrLn $ "File: " ++ cmFile c ++ "\nLine: " ++ show (cmLine c) ++ "\nID: " ++ cmId c ++ "\nResolved: " ++ show (cmResolved c) ++ "\nStatus: " ++ cmStatus c ++ "\nComment: " ++ cmText c ++ "\nAnswer: " ++ fromMaybe "" (cmAnswer c) ++ "\nContext:\n" ++ unlines numberedContext ++ "\n---"
       ) cmts
     else
-    mapM_ (\c -> putStrLn $ cmFile c ++ ":" ++ show (cmLine c) ++ " [" ++ cmId c ++ "][" ++ (if cmResolved c then "Resolved" else "") ++ "]\n\t" ++ replace '\n' " | " (trim (cmText c)) ++ " [" ++ cmStatus c ++ "]" ++ maybe "" (\a -> " answer: " ++ replace '\n' " | " (trim a)) (cmAnswer c) ++ "\n") cmts
+    mapM_ (\c -> do
+      let statusIcon = case cmStatus c of
+            "solved" -> "✅"
+            "not-solved" -> "❌" 
+            "in-progress" -> "⏳"
+            _ -> "📝"
+      let resolvedText = if cmResolved c then " [RESOLVED]" else ""
+      putStrLn $ "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      putStrLn $ "📍 " ++ cmFile c ++ ":" ++ show (cmLine c) ++ " [ID: " ++ cmId c ++ "]" ++ resolvedText
+      putStrLn ""
+      putStrLn $ "Comment:"
+      putStrLn $ "  " ++ intercalate "\n  " (lines (trim (cmText c)))
+      putStrLn ""
+      putStrLn $ statusIcon ++ " Status: " ++ cmStatus c
+      case cmAnswer c of
+        Nothing -> return ()
+        Just answer -> do
+          putStrLn $ "💬 Answer:"
+          putStrLn $ "  " ++ intercalate "\n  " (lines (trim answer))
+      putStrLn ""
+      ) cmts
   where
     replace old new s = intercalate new (splitOn [old] s)
