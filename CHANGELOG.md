@@ -28,3 +28,5 @@
 - Merged feat/more-readable-comments using fast-forward on 2026-04-16
 
 - Merged fix/unicode-emoji-not-visible-on-xterm using fast-forward on 2026-04-16
+
+- Merged fix/track-rebase-autodetermine-old-commit using fast-forward on 2026-04-17
