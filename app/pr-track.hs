@@ -62,7 +62,7 @@ commandParser = subparser
       <*> optional (strOption (long "old-commit" <> metavar "HASH" <> help "Commit hash before rebase (default: find from approval history)"))
       <*> optional (strOption (long "new-commit" <> metavar "HASH" <> help "Commit hash after rebase (default: current HEAD)"))
     debugParser = Debug
-      <$> optional (strOption (long "branch" <> metavar "BRANCH" <> help "Branch to debug (default: current)"))
+      <$> optional (strArgument (metavar "BRANCH" <> help "Branch to debug (default: current)"))
       <*> strOption (long "old-commit" <> metavar "HASH" <> help "Old commit hash")
       <*> optional (strOption (long "new-commit" <> metavar "HASH" <> help "New commit hash (default: current HEAD)"))
 
