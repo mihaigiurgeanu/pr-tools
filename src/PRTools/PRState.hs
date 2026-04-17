@@ -393,17 +393,39 @@ checkValidApprovalsWithBase branch base = do
       return (if flg then x:ys else ys)
 
 -- Transfer approvals after a rebase by updating commit hashes while preserving content hashes
-transferApprovalsAfterRebase :: String -> String -> String -> IO ()
-transferApprovalsAfterRebase branch oldCommit newCommit = do
+transferApprovalsAfterRebase :: String -> Maybe String -> String -> IO ()
+transferApprovalsAfterRebase branch mbOldCommit newCommit = do
   base <- getBaseBranch
-  transferApprovalsAfterRebaseWithBase branch oldCommit newCommit base
+  transferApprovalsAfterRebaseWithBase branch mbOldCommit newCommit base
 
-transferApprovalsAfterRebaseWithBase :: String -> String -> String -> String -> IO ()
-transferApprovalsAfterRebaseWithBase branch oldCommit newCommit base = do
+transferApprovalsAfterRebaseWithBase :: String -> Maybe String -> String -> String -> IO ()
+transferApprovalsAfterRebaseWithBase branch mbOldCommit newCommit base = do
   state <- loadState
   case Map.lookup branch state of
     Nothing -> putStrLn "No PR state found for branch"
     Just pr -> do
+      -- Find old commit from approval history if not provided
+      oldCommit <- case mbOldCommit of
+        Just commit -> return commit
+        Nothing -> do
+          let approvals = approvalHistory pr
+          if null approvals
+            then do
+              putStrLn "No approvals found to transfer from"
+              exitFailure
+            else do
+              -- Use the most recent approval's first commit
+              let latestApproval = last approvals
+              let commits = apCommits latestApproval
+              if null commits
+                then do
+                  putStrLn "No commits found in latest approval"
+                  exitFailure
+                else do
+                  let oldCommit = ciHash (head commits)
+                  putStrLn $ "Using commit from latest approval: " ++ take 7 oldCommit
+                  return oldCommit
+      
       oldContentHash <- generatePatchHash base oldCommit
       newContentHash <- generatePatchHash base newCommit
       

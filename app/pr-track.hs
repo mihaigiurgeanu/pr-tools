@@ -22,7 +22,7 @@ data Command =
   | Status { sBranch :: Maybe String }
   | Record { rBranch :: Maybe String, rTip :: Maybe String }
   | List
-  | Rebase { reBranch :: Maybe String, reOldCommit :: String, reNewCommit :: Maybe String }
+  | Rebase { reBranch :: Maybe String, reOldCommit :: Maybe String, reNewCommit :: Maybe String }
   | Debug { dBranch :: Maybe String, dOldCommit :: String, dNewCommit :: Maybe String }
   | Migrate
 
@@ -59,7 +59,7 @@ commandParser = subparser
       <*> optional (strOption (long "tip" <> metavar "TIP" <> help "The tip commit of the PR (default BRANCH)"))
     rebaseParser = Rebase
       <$> optional (strOption (long "branch" <> metavar "BRANCH" <> help "Branch that was rebased (default: current)"))
-      <*> strOption (long "old-commit" <> metavar "HASH" <> help "Commit hash before rebase")
+      <*> optional (strOption (long "old-commit" <> metavar "HASH" <> help "Commit hash before rebase (default: find from approval history)"))
       <*> optional (strOption (long "new-commit" <> metavar "HASH" <> help "Commit hash after rebase (default: current HEAD)"))
     debugParser = Debug
       <$> optional (strOption (long "branch" <> metavar "BRANCH" <> help "Branch to debug (default: current)"))
@@ -240,7 +240,7 @@ main = do
             let boldEnd = if status == "open" || status == "stale" then "\ESC[0m" else ""
             putStrLn $ boldStart ++ b ++ ": " ++ status ++ " (approvals: " ++ show approvalCount ++ ")" ++ boldEnd
             ) sortedByActivity
-    Rebase mbBranch oldCommit mbNewCommit -> do
+    Rebase mbBranch mbOldCommit mbNewCommit -> do
       branch <- case mbBranch of
         Just b -> return b
         Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] "")
@@ -249,7 +249,7 @@ main = do
         Just c -> return c
         Nothing -> fmap trimTrailing (readProcess "git" ["rev-parse", branch] "")
       
-      transferApprovalsAfterRebaseWithBase branch oldCommit newCommit baseB
+      transferApprovalsAfterRebaseWithBase branch mbOldCommit newCommit baseB
     Debug mbBranch oldCommit mbNewCommit -> do
       branch <- case mbBranch of
         Just b -> return b
