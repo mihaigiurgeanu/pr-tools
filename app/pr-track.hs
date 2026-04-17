@@ -58,7 +58,7 @@ commandParser = subparser
       <$> optional (strArgument (metavar "BRANCH" <> help "Branch to record (default: current)"))
       <*> optional (strOption (long "tip" <> metavar "TIP" <> help "The tip commit of the PR (default BRANCH)"))
     rebaseParser = Rebase
-      <$> optional (strOption (long "branch" <> metavar "BRANCH" <> help "Branch that was rebased (default: current)"))
+      <$> optional (strArgument (metavar "BRANCH" <> help "Branch that was rebased (default: current)"))
       <*> optional (strOption (long "old-commit" <> metavar "HASH" <> help "Commit hash before rebase (default: find from approval history)"))
       <*> optional (strOption (long "new-commit" <> metavar "HASH" <> help "Commit hash after rebase (default: current HEAD)"))
     debugParser = Debug
