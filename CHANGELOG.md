@@ -30,3 +30,5 @@
 - Merged fix/unicode-emoji-not-visible-on-xterm using fast-forward on 2026-04-16
 
 - Merged fix/track-rebase-autodetermine-old-commit using fast-forward on 2026-04-17
+
+- Merged fix/track-rebase-branch-param using fast-forward on 2026-04-17
