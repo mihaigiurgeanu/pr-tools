@@ -448,10 +448,22 @@ transferApprovalsAfterRebaseWithBase branch mbOldCommit newCommit base = do
                 _ -> approval
               ) (approvalHistory pr)
         
-        let updatedPr = pr { approvalHistory = updatedApprovals }
+        -- Create a new approval entry recording the rebase transfer
+        currentTime <- getCurrentTime
+        let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
+        let rebaseTransferApproval = Approval 
+              { apApprover = "system:rebase-transfer"
+              , apTimestamp = timeStr
+              , apCommits = [CommitInfo oldCommit "rebase transfer" Nothing]
+              , apContentHash = Just oldContentHash
+              }
+        
+        let finalApprovals = updatedApprovals ++ [rebaseTransferApproval]
+        let updatedPr = pr { approvalHistory = finalApprovals }
         let newState = Map.insert branch updatedPr state
         saveState newState
         putStrLn $ "Approvals transferred after rebase. Updated " ++ show (length updatedApprovals) ++ " approvals."
+        putStrLn $ "Added rebase transfer record: " ++ take 7 oldCommit ++ " -> " ++ take 7 newCommit
       else
         putStrLn "Content has changed - approvals cannot be transferred automatically"
 
