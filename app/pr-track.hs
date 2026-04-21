@@ -181,28 +181,27 @@ main = do
                 let s = if is_m then "merged" else if is_p then "pending" else "removed"
                 return (ci, s)
                 ) orderedCommits
-              let sorted_statuses = map (\(ci, s) -> (ci, s, "", 0)) temp_list -- dummy timestamp values since we don't need them
-              let mergedCount = length [() | (_,s,_,_) <- sorted_statuses, s == "merged"]
-              let pendingCount = length [() | (_,s,_,_) <- sorted_statuses, s == "pending"]
-              let removedCount = length [() | (_,s,_,_) <- sorted_statuses, s == "removed"]
-              let total = length sorted_statuses
+              let mergedCount = length [() | (_,s) <- temp_list, s == "merged"]
+              let pendingCount = length [() | (_,s) <- temp_list, s == "pending"]
+              let removedCount = length [() | (_,s) <- temp_list, s == "removed"]
+              let total = length temp_list
               putStrLn $ "Latest snapshot at " ++ psTimestamp (last (prSnapshots pr))
               putStrLn $ "Commit status: " ++ show mergedCount ++ " merged, " ++ show pendingCount ++ " pending, " ++ show removedCount ++ " removed out of " ++ show total
               let latest = last (prSnapshots pr)
               let latest_hashes = map ciHash (psCommits latest)
-              let hash_to_s = Map.fromList [ (ciHash ci, s) | (ci, s, _, _) <- temp_list ]
+              let hash_to_s = Map.fromList [ (ciHash ci, s) | (ci, s) <- temp_list ]
               let all_latest_merged = not (null latest_hashes) && all (\h -> Map.lookup h hash_to_s == Just "merged") latest_hashes
               if all_latest_merged
                 then putStrLn $ "PR is fully merged into " ++ baseB
                 else return ()
               putStrLn "All historical commits:"
-              mapM_ (\(ci, s, _, _) -> do
+              mapM_ (\(ci, s) -> do
                 isReviewed <- checkCommitReviewStatusWithBase branch (ciHash ci) baseB
                 let reviewStatus = if isReviewed then ", reviewed" else ", not reviewed"
                 let boldStart = if s == "merged" || s == "pending" then "\ESC[1m" else ""
                 let boldEnd = if s == "merged" || s == "pending" then "\ESC[0m" else ""
                 putStrLn $ "- " ++ boldStart ++ take 7 (ciHash ci) ++ " " ++ ciMessage ci ++ " (" ++ s ++ reviewStatus ++ ")" ++ boldEnd
-                ) sorted_statuses
+                ) temp_list
     Record mbBranch mbTip -> do
       branch <- case mbBranch of
         Just b -> return b
