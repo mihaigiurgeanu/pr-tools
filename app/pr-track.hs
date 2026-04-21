@@ -1,5 +1,6 @@
 import Control.Monad (when)
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Data.List (head, intercalate, length, notElem, null, (!!), sortBy, nub)
 import Options.Applicative
 import System.Exit (exitFailure, ExitCode(..))
@@ -25,6 +26,17 @@ data Command =
   | Rebase { reBranch :: Maybe String, reOldCommit :: Maybe String, reNewCommit :: Maybe String }
   | Debug { dBranch :: Maybe String, dOldCommit :: String, dNewCommit :: Maybe String }
   | Migrate
+
+-- Build ordered commit list: latest snapshot first, then earlier snapshots (filtering duplicates)
+buildOrderedCommitList :: [PRSnapshot] -> [CommitInfo]
+buildOrderedCommitList [] = []
+buildOrderedCommitList snapshots = go snapshots Set.empty []
+  where
+    go [] _ acc = reverse acc
+    go (snapshot:rest) seen acc = 
+      let newCommits = filter (\ci -> not (Set.member (ciHash ci) seen)) (psCommits snapshot)
+          newSeen = foldl (\s ci -> Set.insert (ciHash ci) s) seen newCommits
+      in go rest newSeen (reverse newCommits ++ acc)
 
 globalParser :: Parser Global
 globalParser = Global
@@ -159,23 +171,17 @@ main = do
               (code, out, _) <- readProcessWithExitCode "git" ["rev-parse", "--verify", branch] ""
               let branch_exists = code == ExitSuccess
               let branch_tip = if branch_exists then trimTrailing out else ""
-              let all_commits = foldl (\m ps -> foldl (\m' ci -> if Map.member (ciHash ci) m' then m' else Map.insert (ciHash ci) (ci, psTimestamp ps) m') m (psCommits ps)) Map.empty (prSnapshots pr)
-              temp_list <- mapM (\(ci, ts) -> do
+              
+              -- Build ordered list: latest snapshot first, then earlier snapshots (no duplicates)
+              let orderedCommits = buildOrderedCommitList (reverse (prSnapshots pr)) -- reverse to get latest first
+              
+              temp_list <- mapM (\ci -> do
                 is_m <- isAncestor (ciHash ci) baseB
                 is_p <- if not branch_exists then return False else isAncestor (ciHash ci) branch_tip
                 let s = if is_m then "merged" else if is_p then "pending" else "removed"
-                -- Use stored timestamp if available, otherwise fall back to git (for legacy commits)
-                commitTimestamp <- case ciTimestamp ci of
-                  Just timestamp -> return timestamp
-                  Nothing -> do
-                    -- Try to get timestamp from git, but handle case where commit might not exist
-                    (code, out, _) <- readProcessWithExitCode "git" ["log", "-1", "--format=%ct", ciHash ci] ""
-                    if code == ExitSuccess
-                      then return (read (trimTrailing out) :: Int)
-                      else return 0  -- Use epoch time as fallback for missing commits
-                return (ci, s, ts, commitTimestamp)
-                ) (Map.elems all_commits)
-              let sorted_statuses = sortBy (\(_,_,_,t1) (_,_,_,t2) -> compare t2 t1) temp_list -- newest first
+                return (ci, s)
+                ) orderedCommits
+              let sorted_statuses = map (\(ci, s) -> (ci, s, "", 0)) temp_list -- dummy timestamp values since we don't need them
               let mergedCount = length [() | (_,s,_,_) <- sorted_statuses, s == "merged"]
               let pendingCount = length [() | (_,s,_,_) <- sorted_statuses, s == "pending"]
               let removedCount = length [() | (_,s,_,_) <- sorted_statuses, s == "removed"]
