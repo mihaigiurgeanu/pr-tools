@@ -32,3 +32,5 @@
 - Merged fix/track-rebase-autodetermine-old-commit using fast-forward on 2026-04-17
 
 - Merged fix/track-rebase-branch-param using fast-forward on 2026-04-17
+
+- Merged feature/rebase-approval-keeps-original-approval-history using fast-forward on 2026-04-21
