@@ -35,17 +35,23 @@ instance ToJSON CommitInfo where
     , fromString "timestamp" .= ciTimestamp ci
     ]
 
-data PRSnapshot = PRSnapshot { psTimestamp :: String, psCommits :: [CommitInfo] } deriving (Eq, Show)
+data PRSnapshot = PRSnapshot 
+  { psTimestamp :: String
+  , psCommits :: [CommitInfo]
+  , psContentHash :: Maybe String  -- Content hash for the snapshot
+  } deriving (Eq, Show)
 
 instance FromJSON PRSnapshot where
   parseJSON = withObject "PRSnapshot" $ \v -> PRSnapshot
     <$> v .: fromString "timestamp"
     <*> v .: fromString "commits"
+    <*> v .:? fromString "content_hash"
 
 instance ToJSON PRSnapshot where
   toJSON ps = object
     [ fromString "timestamp" .= psTimestamp ps
     , fromString "commits" .= psCommits ps
+    , fromString "content_hash" .= psContentHash ps
     ]
 
 data ReviewEvent = ReviewEvent
@@ -224,9 +230,17 @@ updatePRStateWithCommits :: PRState -> String -> String -> String -> [CommitInfo
 updatePRStateWithCommits existingState branch base tip commits branchExists = do
   currentTime <- getCurrentTime
   let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" currentTime
+  
+  -- Generate content hash for the snapshot if we have commits
+  contentHash <- if null commits
+    then return Nothing
+    else do
+      hash <- generatePatchHash base tip
+      return (Just hash)
+  
   let updatedSnapshots = if null commits
                          then prSnapshots existingState
-                         else prSnapshots existingState ++ [PRSnapshot timeStr commits]
+                         else prSnapshots existingState ++ [PRSnapshot timeStr commits contentHash]
 
   staleDays <- getStaleDays
   let snapsForStale = if null updatedSnapshots then prSnapshots existingState else updatedSnapshots
@@ -589,7 +603,7 @@ migratePRCommits pr = do
 migrateSnapshot :: PRSnapshot -> IO PRSnapshot
 migrateSnapshot ps = do
   migratedCommits <- mapM migrateCommitInfo (psCommits ps)
-  return ps { psCommits = migratedCommits }
+  return ps { psCommits = migratedCommits, psContentHash = psContentHash ps }
 
 migrateApproval :: Approval -> IO Approval
 migrateApproval ap = do
