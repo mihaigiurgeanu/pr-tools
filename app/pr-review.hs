@@ -64,6 +64,10 @@ data Command =
   | Comments Bool Bool Bool
   | ImportAnswers
 
+data CommentInput = 
+    ErrorFormat String  -- "file:line:col: message" format
+  | TraditionalFormat String Int String  -- --file --line --text format
+
 data NavAction = NavNext | NavPrevious | NavOpen
 
 commandParser :: Parser Command
@@ -74,7 +78,7 @@ commandParser = subparser
  <> command "open" (info (Open <$> optional (strOption (long "file" <> metavar "FILE" <> help "Specific file to open")) <**> helper) (progDesc "Open current or specific file"))
  <> command "files" (info (pure Files <**> helper) (progDesc "List files"))
  <> command "changes" (info (pure Changes <**> helper) (progDesc "Show changes"))
- <> command "comment" (info (commentParser <**> helper) (progDesc "Add comment"))
+ <> command "comment" (info (commentParser <**> helper) (progDesc "Add comment (supports both 'file:line:col: message' format and --file --line --text options)"))
  <> command "resolve" (info (resolveParser <**> helper) (progDesc "Resolve comment"))
  <> command "end" (info (pure End <**> helper) (progDesc "End review"))
  <> command "list" (info (pure List <**> helper) (progDesc "List reviews"))
@@ -84,10 +88,20 @@ commandParser = subparser
  <> command "import-answers" (info (pure ImportAnswers <**> helper) (progDesc "Import answers from fix summary"))
   )
   where
-    commentParser = Comment
-      <$> strOption (long "file" <> metavar "FILE")
-      <*> option auto (long "line" <> metavar "LINE")
-      <*> strOption (long "text" <> metavar "TEXT")
+    commentParser = errorFormatParser <|> traditionalFormatParser
+    
+    errorFormatParser = argument errorReader (metavar "ERROR_STRING" <> help "Error in format 'file:line:col: message'")
+      where
+        errorReader = eitherReader $ \errorStr ->
+          case parseErrorString errorStr of
+            Just (file, line, text) -> Right $ Comment file line text
+            Nothing -> Left "Invalid error format. Expected: 'file:line:col: message'"
+    
+    traditionalFormatParser = Comment
+      <$> strOption (long "file" <> metavar "FILE" <> help "File path")
+      <*> option auto (long "line" <> metavar "LINE" <> help "Line number")
+      <*> strOption (long "text" <> metavar "TEXT" <> help "Comment text")
+    
     resolveParser = Resolve
       <$> strOption (long "id" <> metavar "ID")
       <*> optional (strOption (long "status" <> metavar "STATUS" <> help "Optional status (e.g., solved, not-solved, will-not-solve)"))
@@ -99,6 +113,26 @@ commandParser = subparser
 
 trim :: String -> String
 trim = dropWhile isSpace . reverse . dropWhile isSpace . reverse
+
+-- Parse error format string like "file:line:col: message"
+parseErrorString :: String -> Maybe (String, Int, String)
+parseErrorString input = 
+  case break (== ':') input of
+    (filePart, ':':rest) -> 
+      case break (== ':') rest of
+        (linePart, ':':rest2) ->
+          case break (== ':') rest2 of
+            (colPart, ':':' ':message) -> 
+              case reads linePart of
+                [(lineNum, "")] -> Just (filePart, lineNum, trim message)
+                _ -> Nothing
+            (colPart, ':':message) -> -- Handle case without space after colon
+              case reads linePart of
+                [(lineNum, "")] -> Just (filePart, lineNum, trim message)
+                _ -> Nothing
+            _ -> Nothing
+        _ -> Nothing
+    _ -> Nothing
 
 -- No local parsePastedMessage; use shared
 
