@@ -27,16 +27,43 @@ data Command =
   | Debug { dBranch :: Maybe String, dOldCommit :: String, dNewCommit :: Maybe String }
   | Migrate
 
--- Build ordered commit list: latest snapshot first, then earlier snapshots (filtering duplicates)
-buildOrderedCommitList :: [PRSnapshot] -> [CommitInfo]
-buildOrderedCommitList [] = []
-buildOrderedCommitList snapshots = go snapshots Set.empty []
+-- Build ordered commit list with snapshot info: latest snapshot first, then earlier snapshots (filtering duplicates)
+buildOrderedCommitListWithSnapshots :: [PRSnapshot] -> [(CommitInfo, PRSnapshot)]
+buildOrderedCommitListWithSnapshots [] = []
+buildOrderedCommitListWithSnapshots snapshots = go snapshots Set.empty []
   where
     go [] _ acc = reverse acc
     go (snapshot:rest) seen acc = 
       let newCommits = filter (\ci -> not (Set.member (ciHash ci) seen)) (psCommits snapshot)
           newSeen = foldl (\s ci -> Set.insert (ciHash ci) s) seen newCommits
-      in go rest newSeen (reverse newCommits ++ acc)
+          newCommitsWithSnapshot = map (\ci -> (ci, snapshot)) newCommits
+      in go rest newSeen (reverse newCommitsWithSnapshot ++ acc)
+
+-- Build ordered commit list: latest snapshot first, then earlier snapshots (filtering duplicates)
+buildOrderedCommitList :: [PRSnapshot] -> [CommitInfo]
+buildOrderedCommitList snapshots = map fst (buildOrderedCommitListWithSnapshots snapshots)
+
+-- Display commits grouped by snapshot with snapshot headers
+displayCommitsGroupedBySnapshot :: String -> String -> [((CommitInfo, PRSnapshot), (CommitInfo, String))] -> Maybe String -> IO ()
+displayCommitsGroupedBySnapshot _ _ [] _ = return ()
+displayCommitsGroupedBySnapshot branch baseB (((ci, snapshot), (_, status)):rest) lastSnapshotTimestamp = do
+  -- Check if we need to display a new snapshot header
+  let currentSnapshotTimestamp = psTimestamp snapshot
+  when (Just currentSnapshotTimestamp /= lastSnapshotTimestamp) $ do
+    let contentHashDisplay = case psContentHash snapshot of
+          Just hash -> " (content: " ++ take 12 hash ++ "...)"
+          Nothing -> " (no content hash)"
+    putStrLn $ "Snapshot " ++ currentSnapshotTimestamp ++ contentHashDisplay ++ ":"
+  
+  -- Display the commit
+  isReviewed <- checkCommitReviewStatusWithBase branch (ciHash ci) baseB
+  let reviewStatus = if isReviewed then ", reviewed" else ", not reviewed"
+  let boldStart = if status == "merged" || status == "pending" then "\ESC[1m" else ""
+  let boldEnd = if status == "merged" || status == "pending" then "\ESC[0m" else ""
+  putStrLn $ "- " ++ boldStart ++ take 7 (ciHash ci) ++ " " ++ ciMessage ci ++ " (" ++ status ++ reviewStatus ++ ")" ++ boldEnd
+  
+  -- Continue with the rest
+  displayCommitsGroupedBySnapshot branch baseB rest (Just currentSnapshotTimestamp)
 
 globalParser :: Parser Global
 globalParser = Global
@@ -172,8 +199,9 @@ main = do
               let branch_exists = code == ExitSuccess
               let branch_tip = if branch_exists then trimTrailing out else ""
               
-              -- Build ordered list: latest snapshot first, then earlier snapshots (no duplicates)
-              let orderedCommits = buildOrderedCommitList (reverse (prSnapshots pr)) -- reverse to get latest first
+              -- Build ordered list with snapshot info: latest snapshot first, then earlier snapshots (no duplicates)
+              let orderedCommitsWithSnapshots = buildOrderedCommitListWithSnapshots (reverse (prSnapshots pr)) -- reverse to get latest first
+              let orderedCommits = map fst orderedCommitsWithSnapshots
               
               temp_list <- mapM (\ci -> do
                 is_m <- isAncestor (ciHash ci) baseB
@@ -195,13 +223,9 @@ main = do
                 then putStrLn $ "PR is fully merged into " ++ baseB
                 else return ()
               putStrLn "All historical commits:"
-              mapM_ (\(ci, s) -> do
-                isReviewed <- checkCommitReviewStatusWithBase branch (ciHash ci) baseB
-                let reviewStatus = if isReviewed then ", reviewed" else ", not reviewed"
-                let boldStart = if s == "merged" || s == "pending" then "\ESC[1m" else ""
-                let boldEnd = if s == "merged" || s == "pending" then "\ESC[0m" else ""
-                putStrLn $ "- " ++ boldStart ++ take 7 (ciHash ci) ++ " " ++ ciMessage ci ++ " (" ++ s ++ reviewStatus ++ ")" ++ boldEnd
-                ) temp_list
+              -- Group commits by snapshot and display with snapshot headers
+              let commitsWithStatus = zip orderedCommitsWithSnapshots temp_list
+              displayCommitsGroupedBySnapshot branch baseB commitsWithStatus Nothing
     Record mbBranch mbTip -> do
       branch <- case mbBranch of
         Just b -> return b
