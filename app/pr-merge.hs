@@ -56,18 +56,29 @@ main = do
         hPutStrLn stderr $ "PR " ++ branch ++ " not approved or not tracked"
         exitFailure
         else do
-          -- Check if current content is approved using content hash matching
-          currentTip <- fmap trimTrailing (readProcess "git" ["rev-parse", branch] "")
-          currentContentHash <- generatePatchHash baseB currentTip
-          
-          let approvals = approvalHistory pr
-          let approvedContentHashes = [hash | approval <- approvals, Just hash <- [apContentHash approval]]
-          
-          if currentContentHash `notElem` approvedContentHashes
+          -- Get current content hash from latest snapshot, or compute if missing
+          let snapshots = prSnapshots pr
+          if null snapshots
             then do
-               hPutStrLn stderr $ "PR " ++ branch ++ " has new content since approval. Please request re-approval."
-               exitFailure
+              hPutStrLn stderr $ "PR " ++ branch ++ " has no snapshots"
+              exitFailure
             else do
+              let latestSnapshot = last snapshots
+              currentContentHash <- case psContentHash latestSnapshot of
+                Just hash -> return hash  -- Use stored hash
+                Nothing -> do
+                  -- Fallback: compute content hash on the spot
+                  currentTip <- fmap trimTrailing (readProcess "git" ["rev-parse", branch] "")
+                  generatePatchHash baseB currentTip
+              
+              let approvals = approvalHistory pr
+              let approvedContentHashes = [hash | approval <- approvals, Just hash <- [apContentHash approval]]
+              
+              if currentContentHash `notElem` approvedContentHashes
+                then do
+                   hPutStrLn stderr $ "PR " ++ branch ++ " has new content since approval. Please request re-approval."
+                   exitFailure
+                else do
                commits <- getCommitInfoBetween baseB branch
                callProcess "git" ["checkout", baseB]
                case strategy of
