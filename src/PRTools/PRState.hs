@@ -468,7 +468,7 @@ transferApprovalsAfterRebaseWithBase branch mbOldCommit newCommit base = do
         let rebaseTransferApproval = Approval 
               { apApprover = "system:rebase-transfer"
               , apTimestamp = timeStr
-              , apCommits = [CommitInfo oldCommit ("rebase transfer" ++ newCommit) Nothing]
+              , apCommits = [CommitInfo oldCommit ("rebase transfer to " ++ newCommit) Nothing]
               , apContentHash = Just oldContentHash
               }
         
