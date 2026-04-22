@@ -20,6 +20,7 @@ import System.IO (IOMode(AppendMode), hPutStrLn, stderr, withFile)
 import System.Process (callProcess, readProcess)
 import PRTools.Config (getBaseBranch, getSlackWebhook, trimTrailing)
 import PRTools.PRState
+import PRTools.ContentHash (generatePatchHash)
 
 data Opts = Opts
   { optBranch :: Maybe String
@@ -55,14 +56,16 @@ main = do
         hPutStrLn stderr $ "PR " ++ branch ++ " not approved or not tracked"
         exitFailure
         else do
-          -- Stale check
+          -- Check if current content is approved using content hash matching
           currentTip <- fmap trimTrailing (readProcess "git" ["rev-parse", branch] "")
-          let latestApproval = last (approvalHistory pr)
-          let approvedHashes = map ciHash (apCommits latestApproval)
+          currentContentHash <- generatePatchHash baseB currentTip
           
-          if currentTip `notElem` approvedHashes
+          let approvals = approvalHistory pr
+          let approvedContentHashes = [hash | approval <- approvals, Just hash <- [apContentHash approval]]
+          
+          if currentContentHash `notElem` approvedContentHashes
             then do
-               hPutStrLn stderr $ "PR " ++ branch ++ " has new commits since approval. Please request re-approval."
+               hPutStrLn stderr $ "PR " ++ branch ++ " has new content since approval. Please request re-approval."
                exitFailure
             else do
                commits <- getCommitInfoBetween baseB branch
