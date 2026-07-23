@@ -46,3 +46,5 @@
 - Merged feature/add-new-rebased-commit-in-approval-history using fast-forward on 2026-04-22
 
 - Merged fix/rebase-approval-history-line using fast-forward on 2026-04-22
+
+- Merged fix/comments-not-md using fast-forward on 2026-07-23
