@@ -285,7 +285,7 @@ main = do
           let stats = "Solved: " ++ show solved ++ ", Answered: " ++ show answered ++ ", Status breakdown: " ++ breakdown
           let summaryParts = filter (not . null) [happyAllAnswered, happyAllSolved, happyNoUnsolved, stats]
           let summary = "Fix summary for " ++ branch ++ " by " ++ fixer ++ " attached. " ++ intercalate " " summaryParts
-          let filename = "fix-summary-" ++ sanitizeBranch branch ++ "-" ++ fixer ++ ".md"
+          let filename = "fix-summary-" ++ sanitizeBranch branch ++ "-" ++ fixer ++ ".txt"
           mbToken <- getSlackToken
           mbChannel <- getSlackChannel
           mbWebhook <- getSlackWebhook

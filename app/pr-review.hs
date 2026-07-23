@@ -337,7 +337,7 @@ main = do
               let summary = if solved == total
                             then "Review for " ++ branch ++ " by " ++ reviewer ++ ": Everything is solved! 🎉"
                             else "Review for " ++ branch ++ " by " ++ reviewer ++ " attached. Total comments: " ++ show total ++ ", Solved: " ++ show solved ++ ", To solve: " ++ show unsolved ++ "."
-              let filename = "review-summary-" ++ sanitizeBranch branch ++ "-" ++ reviewer ++ ".md"
+              let filename = "review-summary-" ++ sanitizeBranch branch ++ "-" ++ reviewer ++ ".txt"
               mbToken <- getSlackToken
               mbChannel <- getSlackChannel
               mbWebhook <- getSlackWebhook
