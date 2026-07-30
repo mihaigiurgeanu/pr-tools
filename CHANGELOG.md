@@ -48,3 +48,5 @@
 - Merged fix/rebase-approval-history-line using fast-forward on 2026-04-22
 
 - Merged fix/comments-not-md using fast-forward on 2026-07-23
+
+- Merged feature/merge-instructions using fast-forward on 2026-07-30
