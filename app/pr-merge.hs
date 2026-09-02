@@ -112,7 +112,7 @@ main = do
                    initReq <- parseRequest webhook
                    let req = initReq
                          { method = "POST"
-                         , requestBody = RequestBodyLBS $ encode $ object ["text" .= ("PR " ++ branch ++ " merged using " ++ strategy)]
+                         , requestBody = RequestBodyLBS $ encode $ object ["text" .= (":twisted_rightwards_arrows: PR " ++ branch ++ " merged using " ++ strategy)]
                          , requestHeaders = [(mk "Content-Type", "application/json")]
                          }
                    response <- httpLbs req manager
